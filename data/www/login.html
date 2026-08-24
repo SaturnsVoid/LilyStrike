@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<!-- login.html - deliberately inconspicuous: looks like a generic IoT/router
+     setup portal. Real branding lives behind successful auth. -->
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Device Setup</title>
+<link rel="stylesheet" href="/style.css">
+</head><body class="login-body">
+<div class="login-card">
+  <h2>&#128225; Device Configuration Portal</h2>
+  <p class="muted">Sign in to configure this device.</p>
+  <form id="f">
+    <label>Username<input name="user" autocomplete="username" required></label>
+    <label>Password<input type="password" name="pass" autocomplete="current-password" required></label>
+    <button type="submit">Sign In</button>
+  </form>
+  <p id="err" class="err"></p>
+</div>
+<script>
+document.getElementById('f').onsubmit = async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const r = await fetch('/api/login', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({user: fd.get('user'), pass: fd.get('pass')})});
+  if (r.ok) location.href = '/';
+  else document.getElementById('err').textContent = 'Invalid credentials.';
+};
+</script></body></html>

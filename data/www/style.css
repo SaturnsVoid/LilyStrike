@@ -1,0 +1,63 @@
+/* style.css - dark theme, purple hacker accents. Responsive: desktop grid
+   sidebar, phones collapse to top nav. */
+:root{
+  --bg:#0a0a0f; --panel:#12121c; --panel2:#1a1a28;
+  --text:#d8d8e8; --muted:#7a7a92; --accent:#a855f7; --accent-dim:#6b21a8;
+  --ok:#22c55e; --warn:#eab308; --err:#ef4444; --border:#26263a;
+}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);
+  font-family:'Courier New',monospace;font-size:15px}
+a{color:var(--accent);text-decoration:none}
+.muted{color:var(--muted)} .err{color:var(--err)} .ok{color:var(--ok)}
+
+/* ---- layout ---- */
+#app{display:flex;min-height:100vh}
+nav{width:200px;background:var(--panel);border-right:1px solid var(--border);
+  padding:16px 0;flex-shrink:0}
+nav h1{font-size:15px;color:var(--accent);padding:0 16px;margin:0 0 12px}
+nav a{display:block;padding:10px 18px;color:var(--text)}
+nav a.active,nav a:hover{background:var(--panel2);border-left:3px solid var(--accent)}
+main{flex:1;padding:20px;max-width:1100px}
+@media(max-width:720px){ #app{display:block} nav{width:auto;display:flex;
+  overflow-x:auto;border-right:none;border-bottom:1px solid var(--border)}
+  nav a{white-space:nowrap;border-left:none;border-bottom:3px solid transparent}
+  nav a.active{border-bottom-color:var(--accent)} }
+
+/* ---- widgets ---- */
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:8px;
+  padding:16px;margin-bottom:16px}
+h2{margin-top:0;color:var(--accent)}
+button,.btn{background:var(--accent-dim);color:#fff;border:1px solid var(--accent);
+  border-radius:5px;padding:8px 14px;cursor:pointer;font-family:inherit}
+button:hover{filter:brightness(1.25)}
+button.danger{border-color:var(--err);background:#450a0a}
+button.small{padding:4px 8px;font-size:13px}
+input,textarea,select{background:#0d0d16;color:var(--text);
+  border:1px solid var(--border);border-radius:5px;padding:8px;width:100%;
+  font-family:inherit}
+label{display:block;margin-bottom:10px}
+table{width:100%;border-collapse:collapse}
+td,th{text-align:left;padding:6px 8px;border-bottom:1px solid var(--border)}
+.badge{padding:2px 8px;border-radius:10px;font-size:12px}
+.badge.run{background:#14532d}.badge.fin{background:#1e3a8a}.badge.sb{background:#374151}
+
+/* ---- login page ---- */
+.login-body{display:grid;place-items:center;min-height:100vh}
+.login-card{background:var(--panel);border:1px solid var(--border);
+  padding:32px;border-radius:10px;width:min(360px,90vw)}
+
+/* ---- script editor with line-number gutter + syntax highlight overlay ---- */
+.editor-wrap{position:relative;display:flex;font-family:'Courier New',monospace;
+  background:#0d0d16;border:1px solid var(--border);border-radius:5px;height:380px}
+#gutter{padding:8px 6px;text-align:right;color:var(--muted);user-select:none;
+  overflow:hidden;line-height:1.45em;min-width:38px;border-right:1px solid var(--border)}
+#editorPane{position:relative;flex:1;overflow:hidden}
+#hl,#code{position:absolute;inset:0;margin:0;padding:8px;white-space:pre;
+  overflow:auto;line-height:1.45em;font-size:14px}
+#hl{pointer-events:none;color:var(--text)}
+#code{background:transparent;color:transparent;caret-color:#fff;resize:none;
+  border:none;outline:none}
+.tok-cmd{color:#c084fc;font-weight:bold}      /* commands */
+.tok-str{color:#86efac}                        /* STRING payloads */
+.tok-rem{color:#52527a;font-style:italic}      /* REM lines */
+.tok-num{color:#fbbf24}
