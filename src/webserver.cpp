@@ -307,16 +307,22 @@ static void hFilesList() {
 static void hFileGet() {
     requireAuth(); if (!isAuthed()) return;
     String path = server.arg("path"); if (!path.length()) return jsonErr(400, "?path=");
-    // .ds files are stored encrypted on SD - decrypt transparently so the
-    // browser shows readable text. Other files pass through raw.
-    if (path.endsWith(".ds")) {
+    // Decrypt by CONTENT, not filename: if the file carries our "PCE1"
+    // envelope it gets decrypted transparently; anything else streams raw.
+    File f = SD_MMC.open(path, FILE_READ);
+    if (!f) return jsonErr(404, "not found");
+    uint8_t magic[4] = {0};
+    f.read(magic, 4);
+    bool encrypted = (magic[0]=='P' && magic[1]=='C' && magic[2]=='E' && magic[3]=='1');
+    f.close();
+    if (encrypted) {
         String txt;
         if (!decryptFromFile(path.c_str(), txt))
             return jsonErr(500, "decrypt failed (wrong encryption password?)");
+        server.sendHeader("Cache-Control", "no-cache");
         return server.send(200, "text/plain", txt);
     }
-    File f = SD_MMC.open(path, FILE_READ);
-    if (!f) return jsonErr(404, "not found");
+    f = SD_MMC.open(path, FILE_READ);
     server.streamFile(f, "application/octet-stream");
     f.close();
 }
@@ -326,9 +332,18 @@ static void hFileSave() {
     String body = server.arg("plain"), path, content;
     if (!extractJsonStr(body, "path", path) || !extractJsonStr(body, "content", content))
         return jsonErr(400, "bad request");
+    // Keep the on-disk format consistent with what's already there: files
+    // with our PCE1 envelope (or .ds scripts) get written back encrypted.
+    bool wasEncrypted = false;
+    File chk = SD_MMC.open(path, FILE_READ);
+    if (chk) {
+        uint8_t m[4] = {0}; chk.read(m, 4); chk.close();
+        wasEncrypted = (m[0]=='P' && m[1]=='C' && m[2]=='E' && m[3]=='1');
+    }
     bool ok;
-    if (path.endsWith(".ds")) {
-        ok = encryptToFile(path.c_str(), content);   // keep scripts at rest
+    content = normalizeEol(content);
+    if (wasEncrypted || path.endsWith(".ds")) {
+        ok = encryptToFile(path.c_str(), content);
     } else {
         File f = SD_MMC.open(path, FILE_WRITE);
         if (!f) return jsonErr(500, "cannot open");

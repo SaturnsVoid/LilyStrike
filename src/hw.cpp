@@ -102,9 +102,11 @@ void screenOn() {
         backlightPWM = true;
     }
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
-    ledcWrite(PIN_NUM_BCKL, cfg.screenBrightness);
+    // NOTE: this panel's backlight is INVERTED (USBArmyKnife's LovyanGFX
+    // config sets cfg.invert=true). Duty 255 = off, 0 = full blast.
+    ledcWrite(PIN_NUM_BCKL, 255 - cfg.screenBrightness);
 #else
-    ledcWrite(0, cfg.screenBrightness);
+    ledcWrite(0, 255 - cfg.screenBrightness);
 #endif
     s_screenOn = true;
     if (tft) { tft->fillScreen(ST77XX_BLACK); tft->setTextColor(ST77XX_MAGENTA); }
@@ -113,9 +115,10 @@ bool screenIsOn() { return s_screenOn; }
 // Push cfg.screenBrightness to the PWM without touching anything else.
 void applyBrightness() {
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
-    if (backlightPWM) ledcWrite(PIN_NUM_BCKL, cfg.screenBrightness);
+    // Inverted backlight (see screenOn): higher setting = lower duty.
+    if (backlightPWM) ledcWrite(PIN_NUM_BCKL, 255 - cfg.screenBrightness);
 #else
-    if (backlightPWM) ledcWrite(0, cfg.screenBrightness);
+    if (backlightPWM) ledcWrite(0, 255 - cfg.screenBrightness);
 #endif
 }
 void screenOff() {
