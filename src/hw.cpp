@@ -11,6 +11,7 @@
 #include "hw.h"
 #include "pins.h"
 #include "config.h"
+#include <SPI.h>
 
 namespace hw {
 
@@ -27,7 +28,9 @@ static void apaBit(uint8_t b) {
     for (int i = 7; i >= 0; i--) {
         digitalWrite(LED_CI_PIN, LOW);
         digitalWrite(LED_DI_PIN, (b >> i) & 1);
+        delayMicroseconds(1);              // setup time; keeps us well in spec
         digitalWrite(LED_CI_PIN, HIGH);
+        delayMicroseconds(1);
     }
 }
 static void apaByte(uint8_t b) { apaBit(b); }
@@ -35,10 +38,14 @@ static void apaByte(uint8_t b) { apaBit(b); }
 void ledSet(const RGB& c) {
     // APA102 global brightness: 5-bit scalar packed as 111xxxxx.
     uint8_t gb = 0xE0 | APA102_BRIGHTNESS;
-    for (int i = 0; i < 4; i++) apaByte(0x00);          // start frame
+    for (int i = 0; i < 4; i++) apaByte(0x00);          // start frame (32 zero bits)
     apaByte(0xFF); apaByte(gb);
     apaByte(c.b); apaByte(c.g); apaByte(c.r);           // B,G,R order!
-    for (int i = 0; i < 4; i++) apaBit(0xFF);           // end frame
+    for (int i = 0; i < 4; i++) apaBit(0xFF);           // end frame (32 one-bits)
+    // Extra clock pulses with DI low latch brightness correctly (SK9822/APA102
+    // quirk); without them the LED can hold stale/random color at boot.
+    digitalWrite(LED_DI_PIN, LOW);
+    for (int i = 0; i < 4; i++) apaBit(0x00);
 }
 
 void ledOff() { RGB z = {0,0,0}; ledSet(z); }
@@ -47,18 +54,26 @@ static bool backlightPWM = false;   // true once ledc attached
 
 // ---------------------------------------------------------------------------
 bool initAll() {
+    // Kill backlight FIRST - a floating BCKL pin lights the panel showing
+    // un-initialized display RAM ("multi-color static").
+    pinMode(PIN_NUM_BCKL, OUTPUT);
+    digitalWrite(PIN_NUM_BCKL, LOW);
+
     pinMode(LED_DI_PIN, OUTPUT); digitalWrite(LED_DI_PIN, LOW);
     pinMode(LED_CI_PIN, OUTPUT); digitalWrite(LED_CI_PIN, LOW);
-    ledOff();
+    ledOff();   // send explicit "all dark" frame so LED can't latch random boot noise
 
     // Button: BOOT pin has external pullup on board; enable ours anyway.
     pinMode(PIN_BTN_BOOT, INPUT_PULLUP);
 
-    // --- TFT ---
-    tft = new Adafruit_ST7735(PIN_NUM_CS, PIN_NUM_DC, PIN_NUM_MOSI,
-                              PIN_NUM_CLK, PIN_NUM_RST);
-    tft->initR(INITR_BLACKTAB);          // ST7735 green/black tab @160x80
+    // --- TFT (hardware SPI on its dedicated pins) ---
+    SPI.begin(PIN_NUM_CLK, PIN_NUM_MISO, PIN_NUM_MOSI, PIN_NUM_CS);
+    tft = new Adafruit_ST7735(&SPI, PIN_NUM_CS, PIN_NUM_DC, PIN_NUM_RST);
+    // Always init + clear GRAM at boot even if screen stays "off", otherwise
+    // whatever garbage is in RAM shows when backlight comes on later.
+    tft->initR(INITR_BLACKTAB);          // if colors/offset wrong try INITR_GREENTAB
     tft->setRotation(3);                 // landscape matching dongle shell
+    tft->fillScreen(ST77XX_BLACK);
     if (cfg.screenOnBoot) screenOn(); else screenOff();
 
     // --- SD (4-bit SD_MMC) ---

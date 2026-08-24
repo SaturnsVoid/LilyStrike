@@ -365,24 +365,24 @@ static void hSettings() {
 }
 
 // ---- static UI -------------------------------------------------------------------
-// Only these three files are served unauthenticated-adjacent; index requires a
-// session and everything else 404s. login.html is intentionally bland so the
-// device looks like generic router/IoT setup portal.
+// NOTE: files live under /www inside LittleFS (data/www -> image root keeps
+// folder), so browser paths must be mapped to /www/<path>.
+static void serveWWW(const char* browserPath) {
+    String fsPath = String("/www") + browserPath;
+    File f = LittleFS.open(fsPath, "r");
+    if (!f) { server.send(500, "text/plain", "UI missing - run 'pio run -t uploadfs'"); return; }
+    server.streamFile(f, String(browserPath).endsWith(".css") ? "text/css" :
+                          String(browserPath).endsWith(".js") ? "application/javascript" : "text/html");
+    f.close();
+}
 static void hIndex() {
     if (!isAuthed()) { server.sendHeader("Location", "/login.html"); server.send(302); return; }
-    File f = LittleFS.open("/www/index.html", "r");
-    if (!f) { server.send(500, "text/plain", "UI missing - run 'pio run -t uploadfs'"); return; }
-    server.streamFile(f, "text/html");
-    f.close();
+    serveWWW("/index.html");
 }
 static void hStatic() {
     String p = server.uri();
     if (p != "/login.html" && p != "/app.js" && p != "/style.css") { server.send(404); return; }
-    File f = LittleFS.open(p, "r");
-    if (!f) { server.send(404, "text/plain", "missing"); return; }
-    server.streamFile(f, p.endsWith(".css") ? "text/css" :
-                          p.endsWith(".js") ? "application/javascript" : "text/html");
-    f.close();
+    serveWWW(p.c_str());
 }
 
 // ---------------------------------------------------------------------------
