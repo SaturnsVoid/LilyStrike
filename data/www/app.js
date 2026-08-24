@@ -315,7 +315,7 @@ function refPanel(){
    ["F1..F12","Function keys"],["REPEAT n","Repeat previous line n times"],
    ["LOG msg","Write msg to encrypted device log"],
    ["DETECT_OS","Fingerprint host OS (~10s)"],
-   ["IF_OS windows/linux/macos/ios/android/chromeos ... ELSE ... END_IF","OS branch"],
+   ["IF_OS / IF_SSID / IF_WIFI value ... ELSE_IF val ... ELSE ... END_IF","Condition blocks (ELSE_IF inherits parent type)"],
    ["IF_SSID name / IF_WIFI ... END_IF","WiFi conditions (scan / station connected)"],
    ["LED_ON #RRGGBB | LED_OFF | LED_BLINK n #RRGGBB","Status LED control"],
    ["SCREEN_ON/OFF/CLEAR","Backlight + display"],["SCREEN_TEXT txt [#RRGGBB]","Show text on screen"],

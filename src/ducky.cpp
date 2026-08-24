@@ -9,6 +9,7 @@
 //   Custom:  LOG msg                       -> encrypted device log
 //            DETECT_OS                     -> run host OS fingerprint (~10s)
 //            IF_OS <windows|linux|macos|ios|android|chromeos|unknown>
+//            ELSE_IF <value>               -> inherits parent condition type
 //            IF_SSID <ssid>                -> AP visible?
 //            IF_WIFI                       -> station connected?
 //            ELSE / END_IF                 -> block structure (nestable)
@@ -167,6 +168,13 @@ static bool evalCondition(Cond type, const String& arg) {
 // ------------------------------------------------------------- interpreter
 struct Line { String cmd, args; int srcLine; };   // pre-parsed script line
 
+// Map an IF_/ELSE_IF command to its condition type.
+static Cond condTypeOf(const String& cmd) {
+    if (cmd.equalsIgnoreCase("IF_SSID") ) return Cond::SSID;
+    if (cmd.equalsIgnoreCase("IF_WIFI") ) return Cond::WIFI;
+    return Cond::OS;   // IF_OS and bare ELSE_IF default to OS comparison
+}
+
 RunResult run(const String& scriptText, const String& name) {
     RunResult res{true, 0, ""};
     g_stopRequested = false;
@@ -222,6 +230,36 @@ RunResult run(const String& scriptText, const String& name) {
         }
         return -1;
     };
+    auto isIfCmd = [](const String& c) {
+        return c.equalsIgnoreCase("IF_OS") || c.equalsIgnoreCase("IF_SSID") ||
+               c.equalsIgnoreCase("IF_WIFI");
+    };
+
+    // Pending IF blocks whose TRUE branch is executing; top = current block.
+    // Lets ELSE / ELSE_IF know where their enclosing END_IF lives even when
+    // nested IFs run inside the branch (those pop themselves first).
+    std::vector<int> ifStack;
+    // Jump to the first matching depth-0 ELSE_IF/ELSE after IF at `from`,
+    // evaluating ELSE_IF conditions lazily with the PARENT's condition type
+    // (an ELSE_IF inside IF_SSID tests SSIDs). Returns index to EXECUTE next,
+    // or -1 if no branch matches (caller jumps past END_IF).
+    auto nextFalseBranch = [&](int from, int endIdx, Cond ptype) -> int {
+        int depth = 0;
+        for (int j = from; j < endIdx; j++) {
+            String& c = lines[j].cmd;
+            if (isIfCmd(c)) { depth++; continue; }
+            if (c.equalsIgnoreCase("END_IF")) { depth--; continue; }
+            if (depth != 0) continue;
+            if (c.equalsIgnoreCase("ELSE_IF")) {
+                // "ELSE_IF windows" style shorthand -> strip nothing; args are
+                // already the comparison value for the parent's condition.
+                if (evalCondition(ptype, lines[j].args)) return j + 1;
+                continue;   // try next ELSE_IF / ELSE
+            }
+            if (c.equalsIgnoreCase("ELSE")) return j + 1;
+        }
+        return -1;   // no branch matched
+    };
 
     std::vector<int> stack;   // manual loop stack instead of recursion
 
@@ -244,39 +282,35 @@ RunResult run(const String& scriptText, const String& name) {
             lastCmdLine = L.cmd + (L.args.length() ? " " + L.args : "");
         }
 
-        // ---- control flow ----
-        bool isIf = cmd.equalsIgnoreCase("IF_OS") || cmd.equalsIgnoreCase("IF_SSID") ||
-                    cmd.equalsIgnoreCase("IF_WIFI");
-        if (isIf) {
-            Cond type = cmd.equalsIgnoreCase("IF_OS")   ? Cond::OS :
-                        cmd.equalsIgnoreCase("IF_SSID") ? Cond::SSID : Cond::WIFI;
+        // ---- control flow (IF / ELSE_IF / ELSE / END_IF) ----
+        if (isIfCmd(cmd)) {
             int endIdx = findMatching(i);
             if (endIdx < 0) {
                 res.error += "L" + String(L.srcLine) + ":missing END_IF ";
                 break;
             }
-            // Find this IF's own ELSE (depth-0 scan between i..endIdx).
-            int elseIdx = -1, depth = 0;
-            for (int j = i + 1; j < endIdx; j++) {
-                String& c = lines[j].cmd;
-                if (c.equalsIgnoreCase("IF_OS") || c.equalsIgnoreCase("IF_SSID") ||
-                    c.equalsIgnoreCase("IF_WIFI")) depth++;
-                else if (c.equalsIgnoreCase("END_IF")) depth--;
-                else if (c.equalsIgnoreCase("ELSE") && depth == 0) { elseIdx = j; break; }
-            }
-            if (evalCondition(type, args)) {
-                i++;                                   // take the IF branch
+            // Evaluate lazily: our condition, then any depth-0 ELSE_IFs, then ELSE.
+            int target = -1;
+            if (evalCondition(condTypeOf(cmd), args)) {
+                target = i + 1;                        // take the IF branch
             } else {
-                i = (elseIdx >= 0) ? elseIdx + 1 : endIdx + 1;   // jump to ELSE / past END_IF
+                target = nextFalseBranch(i + 1, endIdx, condTypeOf(cmd));
+                if (target < 0) target = endIdx + 1;   // no branch matched
             }
+            ifStack.push_back(endIdx);                 // branch taken -> remember END_IF
+            i = target;
             continue;
         }
-        if (cmd.equalsIgnoreCase("ELSE")) {            // reached after true-branch
-            int endIdx = findMatching(i);              // skip to past END_IF
-            i = (endIdx < 0) ? (int)lines.size() : endIdx + 1;
+        if (cmd.equalsIgnoreCase("ELSE") || cmd.equalsIgnoreCase("ELSE_IF")) {
+            // Previous TRUE branch finished - skip past its END_IF.
+            i = ifStack.empty() ? (int)lines.size() : ifStack.back() + 1;
+            if (!ifStack.empty()) ifStack.pop_back();
             continue;
         }
-        if (cmd.equalsIgnoreCase("END_IF")) { i++; continue; }   // branch end marker
+        if (cmd.equalsIgnoreCase("END_IF")) {
+            if (!ifStack.empty()) ifStack.pop_back();
+            i++; continue;
+        }
 
         // ---- core commands ----
         bool executed = true;
