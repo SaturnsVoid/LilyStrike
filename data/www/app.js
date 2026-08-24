@@ -55,14 +55,12 @@ function toolsView() {
       <button class="small" onclick="newScript()">New</button>
       <button class="small" onclick="saveScript()">Save</button>
       <button class="small ok" id="runBtn" onclick="runScript()">&#9654; Run</button>
-      <button class="small danger" onclick="api('/api/stop',{method:'POST'})">&#9632; Stop</button>
+      <button class="small danger" id="stopBtn" onclick="api('/api/stop',{method:'POST'})" style="display:none">&#9632; Stop</button>
     </div>
     <div class="editor-wrap">
       <pre id="gutter">1</pre>
-      <div id="editorPane"><pre id="hl"></pre>
-        <textarea id="code" spellcheck="false"
-          placeholder="Type DuckyScript here...&#10;e.g.&#10;DELAY 1000&#10;GUI r&#10;STRING notepad&#10;ENTER"></textarea>
-      </div>
+      <textarea id="code" spellcheck="false"
+        placeholder="Type DuckyScript here...&#10;e.g.&#10;DELAY 1000&#10;GUI r&#10;STRING notepad&#10;ENTER"></textarea>
     </div>
     <label style="margin-top:8px">Save as filename (.ds)
       <input id="scriptName" placeholder="payload.ds" style="max-width:240px">
@@ -81,43 +79,35 @@ function toolsView() {
   // Normalise CRLF -> LF and wire up editor events once per render.
   const code = CODE();
   code.value = code.value.replace(/\r\n?/g, "\n");
-  code.addEventListener("input", () => { highlight(); syncScroll(); });
-  code.addEventListener("scroll", syncScroll);       // keep overlay + gutter in step
-  highlight(); syncScroll();
+  code.addEventListener("input", syncGutter);
+  code.addEventListener("scroll", ()=>{ $("#gutter").scrollTop=code.scrollTop; });
+  syncGutter();
   refreshScripts();
 }
 
 /* -------- editor helpers -------- */
-// NOTE(cursor): #hl and #code share identical font metrics + padding + line-height
-// (see style.css). The textarea scrolls; #hl/#gutter follow via syncScroll.
+// NOTE(cursor): the syntax-highlight overlay was removed - transparent-text
+// overlays are fragile across browsers/zoom levels and misaligned the caret.
+// Plain textarea + synced line-number gutter for Step 1; a proper editor
+// component returns in Step 5 UI polish.
 const CODE = () => $("#code");
-const COMMANDS = /^(REM|REM_BLOCK_(START|END)|DELAY|DEFAULTDELAY|DEFAULT_DELAY|STRING|STRINGLN|ENTER|SPACE|TAB|ESCAPE|DOWNARROW|UPARROW|LEFTARROW|RIGHTARROW|BACKSPACE|DELETE|HOME|INSERT|PAGEUP|PAGEDOWN|CAPSLOCK|APP|REPEAT|LOG|GUI|WINDOWS|COMMAND|CTRL|CONTROL|ALT|ALTGR|SHIFT|F\d{1,2})\b/i;
-function highlight() {
-  const lines = CODE().value.split("\n");
-  let out = "", g = "";
-  lines.forEach((ln, i) => {
-    g += (i + 1) + "\n";
-    if (/^\s*(REM|#)/i.test(ln)) out += `<span class="tok-rem">${esc(ln)}</span>`;
-    else {
-      const m = ln.match(COMMANDS);
-      if (m) {
-        const rest = ln.slice(m[0].length);
-        out += `<span class="tok-cmd">${esc(m[0])}</span>` +
-               (/^STRING/i.test(m[0]) ? `<span class="tok-str">${esc(rest)}</span>`
-                                      : esc(rest));
-      } else out += esc(ln);
-    }
-    out += "\n";
-  });
-  $("#hl").innerHTML = out;
-  $("#gutter").textContent = g;
+function syncGutter(){
+  const c=CODE(), gt=$("#gutter"); if(!c||!gt)return;
+  const n=c.value.split("\n").length;
+  let g=""; for(let i=1;i<=n;i++) g+=i+"\n";
+  gt.textContent=g; gt.scrollTop=c.scrollTop;
 }
-function syncScroll(){
-  const hl=$("#hl"), gt=$("#gutter"), c=CODE();
-  if(!hl||!c)return;
-  hl.scrollTop=c.scrollTop; hl.scrollLeft=c.scrollLeft;
-  if(gt) gt.scrollTop=c.scrollTop;
-}
+// Poll script state: hide Run while running, hide Stop when idle.
+setInterval(async()=>{
+  const rb=$("#runBtn"), sb=$("#stopBtn"); if(!rb||!sb)return;
+  try{ const s=await api("/api/status");
+    const running=(s.scriptState==="RUNNING");
+    rb.style.display=running?"none":"";
+    sb.style.display=running?"":"none";
+    if(running) sb.innerHTML="&#9632; Stop "+esc(s.scriptName);
+  }catch(e){}
+},2000);
+
 async function refreshScripts() {
   const list = await api("/api/scripts");
   $("#scriptList").innerHTML = list.map(s=>`<option>${esc(s.name)}</option>`).join("");
@@ -128,10 +118,9 @@ async function loadScript(){
   const n=$("#scriptList").value; if(!n)return;
   const t = await api("/api/script?name="+encodeURIComponent(n));
   CODE().value = String(t).replace(/\r\n?/g,"\n");   // normalise EOL cross-platform
-  $("#scriptName").value=n; highlight(); syncScroll();
-  toast("Loaded "+n);
+  $("#scriptName").value=n; syncGutter(); toast("Loaded "+n);
 }
-function newScript(){ CODE().value=""; $("#scriptName").value=""; highlight(); toast("New script"); }
+function newScript(){ CODE().value=""; $("#scriptName").value=""; syncGutter(); toast("New script"); }
 async function saveScript(){
   const n=$("#scriptName").value.trim(); if(!n) return toast("Enter a filename first","err");
   await jpost("/api/script",{name:n,text:CODE().value}); refreshScripts();
@@ -196,10 +185,16 @@ async function fbGo(p){
 function fbUp(){ fbGo(fbCur.replace(/\/[^/]*$/,"")||"/"); }
 async function delFb(p){ if(await confirmModal("Delete "+p+"?")){await api("/api/file?path="+encodeURIComponent(p),{method:"DELETE"});fbGo(fbCur);} }
 async function runSd(p){ await jpost("/api/run",{name:p.split("/").pop()}); toast("Running "+p); }
-function upload(){ const f=$("#upFile").files[0]; if(!f)return;
-  fetch("/api/upload?path="+encodeURIComponent(fbCur+"/"+f.name),{method:"POST",body:f})
-   .then(r=>{ if(r.ok){toast("Uploaded "+f.name); fbGo(fbCur);} else toast("Upload failed ("+r.status+")","err"); })
-   .catch(()=>toast("Upload failed","err"));
+async function upload(){
+  const f=$("#upFile").files[0]; if(!f)return;
+  try{
+    const b64=btoa(await f.text());          // small files only (Step-1 scope)
+    const r=await fetch("/api/filebin?path="+encodeURIComponent(fbCur+"/"+f.name),
+      {method:"POST",headers:{"Content-Type":"application/json"},
+       body:JSON.stringify({b64})});
+    if(r.ok){toast("Uploaded "+f.name); fbGo(fbCur);}
+    else toast("Upload failed ("+r.status+")","err");
+  }catch(e){ toast("Upload failed","err"); }
 }
 // Edit any file in an in-page modal. .ds files come back decrypted from API.
 async function editSd(p){

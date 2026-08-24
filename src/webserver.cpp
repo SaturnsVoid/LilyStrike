@@ -34,6 +34,7 @@
 #include <LittleFS.h>
 #include <SD_MMC.h>
 #include "util.h"
+#include <mbedtls/base64.h>
 #include <esp_system.h>
 #include <esp32-hal.h>
 
@@ -367,21 +368,31 @@ static void hDevScreen() {
     json(200, "{\"ok\":true}");
 }
 
-static void hUpload() {
+// Binary upload: POST /api/filebin?path=/x  body {"b64":"<base64>"}
+// The old multipart streaming handler crashed the device; small files are
+// fine to buffer whole and this path is deterministic.
+static void hFileBin() {
     requireAuth(); if (!isAuthed()) return;
     String path = server.arg("path");
-    HTTPUpload& up = server.upload();
-    static File tmp;
-    if (up.status == UPLOAD_FILE_START) {
-        tmp = SD_MMC.open(path, FILE_WRITE);
-    } else if (up.status == UPLOAD_FILE_WRITE && tmp) {
-        tmp.write(up.buf, up.currentSize);
-    } else if (up.status == UPLOAD_FILE_END && tmp) {
-        tmp.close();
-        logLine("web: uploaded " + path);
-    }
-    // IMPORTANT: never send a response from inside the upload handler -
-    // WebServer calls our completion lambda afterwards; sending twice panics.
+    if (!path.length()) return jsonErr(400, "?path=");
+    String b64;
+    if (!extractJsonStr(server.arg("plain"), "b64", b64)) return jsonErr(400, "bad request");
+
+    // mbedtls base64 decode (needs padding-aware length calc)
+    size_t outLen = (b64.length() / 4) * 3 + 3;
+    std::vector<uint8_t> bin(outLen);
+    size_t actual = 0;
+    if (mbedtls_base64_decode(bin.data(), outLen, &actual,
+                              (const uint8_t*)b64.c_str(), b64.length()) != 0)
+        return jsonErr(400, "bad base64");
+    bin.resize(actual);
+
+    File f = SD_MMC.open(path, FILE_WRITE);
+    if (!f) return jsonErr(500, "cannot open for write");
+    size_t w = f.write(bin.data(), bin.size());
+    f.close();
+    logLine("web: uploaded " + path + " (" + String(bin.size()) + "B)");
+    json(w == bin.size() ? 200 : 500, String("{\"ok\":") + (w==bin.size()) + "}");
 }
 
 static void hFileDelete() {
@@ -405,9 +416,10 @@ static void hSettings() {
 
     configSaveWiFi(); configSaveLogin(); configSaveEncryption();
 
-    // display group - brightness was previously parsed but never APPLIED
-    if (extractJsonStr(body, "brightness", v) && v.length())
-        cfg.screenBrightness = constrain(v.toInt(), 0, 255);
+    // display group - brightness is an UNQUOTED JSON number, so it needs
+    // extractJsonNum (extractJsonStr requires quotes and silently failed,
+    // leaving brightness stuck at its default).
+    cfg.screenBrightness = constrain((int)extractJsonNum(body, "brightness", (long)cfg.screenBrightness), 0, 255);
     // interface flags come as booleans - hand-rolled detection:
     if (body.indexOf("\"screenOnBoot\":true") >= 0)  cfg.screenOnBoot = true;
     if (body.indexOf("\"screenOnBoot\":false") >= 0) cfg.screenOnBoot = false;
@@ -503,9 +515,9 @@ bool begin() {
     server.on("/api/file", HTTP_GET, hFileGet);
     server.on("/api/file", HTTP_POST, hFileSave);
     server.on("/api/file", HTTP_DELETE, hFileDelete);
-    server.on("/api/upload", HTTP_POST, [](){ json(200,"{\"ok\":true}"); }, hUpload);
-    server.on("/api/mkdir", HTTP_POST, hMkdir);
     server.on("/api/dev/led", HTTP_GET, hDevLed);       // hardware test
+    server.on("/api/mkdir", HTTP_POST, hMkdir);
+    server.on("/api/filebin", HTTP_POST, hFileBin);   // binary upload (base64)
     server.on("/api/dev/screen", HTTP_GET, hDevScreen); // hardware test
     server.on("/api/settings", HTTP_POST, hSettings);
     server.on("/api/settings", HTTP_GET, hSettingsGet);   // form loads saved values

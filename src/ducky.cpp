@@ -153,6 +153,8 @@ RunResult run(const String& scriptText, const String& name) {
             args = (sp>0)?line.substring(sp+1):String("");
         } else lastCmdLine = line;
 
+        // Execute the (possibly substituted) line `times` times.
+        for (int t = 0; t < times && !g_stopRequested; t++) {
         bool executed = true;
         if      (cmd.equalsIgnoreCase("DELAY"))         { delay(constrain(args.toInt(),0,60000)); }
         else if (cmd.equalsIgnoreCase("DEFAULTDELAY") ||
@@ -169,6 +171,7 @@ RunResult run(const String& scriptText, const String& name) {
         if (!executed && !res.error.isEmpty()) { /* keep running other lines */ }
         if (executed || !res.error.isEmpty()) res.linesRun++;
         if (defaultDelay && executed) delay(defaultDelay);
+        } // end REPEAT loop
     }
 
     g_running = false;

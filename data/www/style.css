@@ -46,6 +46,21 @@ td,th{text-align:left;padding:6px 8px;border-bottom:1px solid var(--border)}
 .login-card{background:var(--panel);border:1px solid var(--border);
   padding:32px;border-radius:10px;width:min(360px,90vw)}
 
+/* ---- script editor: plain textarea + line-number gutter ---- */
+.editor-wrap{display:flex;font-family:'Courier New',monospace;
+  background:#0d0d16;border:1px solid var(--border);border-radius:5px;height:380px}
+#gutter{padding:8px 6px;text-align:right;color:var(--muted);user-select:none;
+  overflow:hidden;line-height:1.45em;font-size:14px;min-width:38px;
+  border-right:1px solid var(--border)}
+#code{flex:1;background:transparent;color:var(--text);caret-color:#fff;
+  border:none;outline:none;resize:none;padding:8px;white-space:pre;
+  overflow:auto;line-height:1.45em;font-size:14px;font-family:inherit}
+
+/* ---- login page ---- */
+.login-body{display:grid;place-items:center;min-height:100vh}
+.login-card{background:var(--panel);border:1px solid var(--border);
+  padding:32px;border-radius:10px;width:min(360px,90vw)}
+
 /* ---- script editor with line-number gutter + syntax highlight overlay ---- */
 .editor-wrap{position:relative;display:flex;font-family:'Courier New',monospace;
   background:#0d0d16;border:1px solid var(--border);border-radius:5px;height:380px}

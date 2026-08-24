@@ -52,7 +52,8 @@ bool extractJsonStr(const String& json, const char* key, String& out) {
     return true;
 }
 
-bool extractJsonArr(const String& json, const char* key, std::vector<String>& out) {
+bool extractJsonArr(const String& json, const char* key, std::vector<String>& out)
+{
     out.clear();
     int i = findKey(json, key);
     if (i < 0 || json[i] != '[') return false;
@@ -73,4 +74,15 @@ bool extractJsonArr(const String& json, const char* key, std::vector<String>& ou
         start = q2 + 1;
     }
     return true;
+}
+
+// Numeric fields are unquoted in JSON - extractJsonStr can't see them.
+long extractJsonNum(const String& json, const char* key, long def) {
+    int i = findKey(json, key);
+    if (i < 0) return def;
+    String num;
+    while (i < (int)json.length() &&
+           (isdigit(json[i]) || json[i]=='-' || json[i]=='+'))
+        num += json[i++];
+    return num.length() ? num.toInt() : def;
 }

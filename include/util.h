@@ -13,3 +13,6 @@ bool extractJsonArr(const String& json, const char* key, std::vector<String>& ou
 
 // Convert CRLF/CR line endings to plain LF (cross-platform text hygiene).
 String normalizeEol(const String& s);
+
+// Extract an unquoted numeric field ("key":123). Returns def if absent.
+long extractJsonNum(const String& json, const char* key, long def);
