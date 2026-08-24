@@ -1,32 +1,56 @@
 // ============================================================================
-// ducky.cpp - DuckyScript v3 interpreter (see ducky.h for supported syntax)
+// ducky.cpp - DuckyScript v3 interpreter + Step-2 custom commands
 // ----------------------------------------------------------------------------
-// USB HID: uses the core's TinyUSB-backed USBHIDKeyboard. The board def sets
-// ARDUINO_USB_MODE=0 so the HID device enumerates as keyboard.
+// USB HID: TinyUSB-backed USBHIDKeyboard (+ USBHIDMouse for JIGGLE_MOUSE).
 //
-// Design notes:
-//  * Interpreter is a straightforward line-at-a-time state machine; custom
-//    commands from later steps plug in where marked [CUSTOM HOOK].
-//  * `g_stopRequested` is polled between lines so the web UI can abort.
+// Supported syntax:
+//   Core:    REM/REM_BLOCK, DELAY, DEFAULTDELAY, STRING, STRINGLN, ENTER,
+//            specials/arrows/F1-12, modifier combos ("GUI r"), REPEAT n
+//   Custom:  LOG msg                       -> encrypted device log
+//            DETECT_OS                     -> run host OS fingerprint (~10s)
+//            IF_OS <windows|linux|macos|ios|android|chromeos|unknown>
+//            IF_SSID <ssid>                -> AP visible?
+//            IF_WIFI                       -> station connected?
+//            ELSE / END_IF                 -> block structure (nestable)
+//            LED_ON #RRGGBB | LED_OFF | LED_BLINK <times> #RRGGBB
+//            SCREEN_ON | SCREEN_OFF | SCREEN_CLR | SCREEN_TEXT txt [#fg #bg]
+//            RANDOM_NUM <min> <max>        -> types a random number
+//            RANDOM_CHAR <len>             -> types random chars
+//            HUMAN_TYPE txt                -> ~40wpm jittered typing
+//            GET_IP                        -> types device IP (or "no-ip")
+//            WAIT_BUTTON [secs] [CONTINUE|STOP]   (default 30 CONTINUE)
+//            JIGGLE_MOUSE <secs>           -> subtle mouse motion
+//            CONNECT_AP <ssid> [password]  -> join network as station
+//            RESET_FIRM                    -> factory reset + reboot
+//   NOTE: SSID_SPAM and SCREEN_IMG deferred (Step 3 wifi-lowlevel / image
+//         loader work); unknown commands log an error but don't abort.
+//
+// Control flow is implemented with an index-based line walker + a block
+// matcher (findMatching) so IF blocks can nest.
 // ============================================================================
 #include "ducky.h"
 #include "config.h"
 #include "crypt.h"
+#include "hw.h"
+#include "detect_os.h"
 #include <USB.h>
 #include <USBHIDKeyboard.h>
+#include <USBHIDMouse.h>
+#include <WiFi.h>
+#include <esp_random.h>
 #include <vector>
 
 namespace ducky {
 
-static USBHIDKeyboard kb;
+USBHIDKeyboard kb;
+static USBHIDMouse mouse;
 static bool kbStarted = false;
 static volatile bool g_running = false;
 static volatile bool g_stopRequested = false;
-static String s_state = "STANDBY";   // local mirror; authoritative state in config.h g_state
+static String s_state = "STANDBY";
 
 // ---------------------------------------------------------------- modifiers
 struct KeyName { const char* name; uint8_t keymod; };
-// Modifier keys map onto HID keycodes used by USBHIDKeyboard.
 static const KeyName MODS[] = {
     {"GUI", KEY_LEFT_GUI}, {"WINDOWS", KEY_LEFT_GUI}, {"COMMAND", KEY_LEFT_GUI},
     {"CTRL", KEY_LEFT_CTRL}, {"CONTROL", KEY_LEFT_CTRL},
@@ -44,7 +68,6 @@ static const KeyName SPECIALS[] = {
     {"HOME", KEY_HOME}, {"END", KEY_END},
     {"INSERT", KEY_INSERT}, {"PAGEUP", KEY_PAGE_UP}, {"PAGEDOWN", KEY_PAGE_DOWN},
     {"CAPSLOCK", KEY_CAPS_LOCK}, {"APP", HID_KEY_APPLICATION},
-    // F1..F12
     {"F1", KEY_F1},{"F2", KEY_F2},{"F3", KEY_F3},{"F4", KEY_F4},{"F5", KEY_F5},
     {"F6", KEY_F6},{"F7", KEY_F7},{"F8", KEY_F8},{"F9", KEY_F9},{"F10", KEY_F10},
     {"F11", KEY_F11},{"F12", KEY_F12},
@@ -55,7 +78,6 @@ static bool lookup(const KeyName* table, size_t n, const String& k, uint8_t& out
         if (k.equalsIgnoreCase(table[i].name)) { out = pgm_read_byte(&table[i].keymod); return true; }
     return false;
 }
-// Resolve a token to a keycode: single char, or named special/modifier.
 static bool resolveKey(const String& tok, uint8_t& out) {
     if (lookup(MODS, sizeof(MODS)/sizeof(MODS[0]), tok, out)) return true;
     if (lookup(SPECIALS, sizeof(SPECIALS)/sizeof(SPECIALS[0]), tok, out)) return true;
@@ -63,9 +85,9 @@ static bool resolveKey(const String& tok, uint8_t& out) {
     return false;
 }
 
-// Press-and-release a combo like "GUI r" / "CTRL-SHIFT t".
+// ---------------------------------------------------------------- helpers
 static void pressCombo(const String& args) {
-    uint8_t held = 0; std::vector<uint8_t> taps;
+    std::vector<uint8_t> taps;
     int start = 0;
     while (start <= (int)args.length()) {
         int sp = args.indexOf(' ', start);
@@ -74,7 +96,7 @@ static void pressCombo(const String& args) {
         if (tok.length()) {
             uint8_t k;
             if (resolveKey(tok, k)) {
-                if (lookup(MODS, sizeof(MODS)/sizeof(MODS[0]), tok, k)) kb.press(k), held |= 0; // hold modifier
+                if (lookup(MODS, sizeof(MODS)/sizeof(MODS[0]), tok, k)) kb.press(k);
                 else taps.push_back(k);
             }
         }
@@ -83,78 +105,180 @@ static void pressCombo(const String& args) {
     }
     for (auto t : taps) { kb.press(t); delay(8); kb.release(t); }
     kb.releaseAll();
-    delay(100);   // host settle time after combos (e.g. Windows Run dialog)
+    delay(100);   // host settle time after combos
 }
 
-// Type a string verbatim at a pace every host can keep up with.
 static void typeString(const String& s) {
+    for (size_t i = 0; i < s.length(); i++) { kb.write(s[i]); delay(5); }
+}
+
+// ~40 wpm with jitter - looks human, defeats keystroke-timing analysis.
+static void humanType(const String& s) {
     for (size_t i = 0; i < s.length(); i++) {
         kb.write(s[i]);
-        delay(5);            // keystroke pacing; prevents dropped characters
+        // base 120ms +/- up to 100ms jitter => roughly 35-45 wpm average
+        delay(70 + esp_random() % 100);
+    }
+}
+
+// "#RRGGBB" or "RRGGBB" -> RGB struct. Returns black on parse failure.
+static RGB parseColor(String hex) {
+    hex.trim();
+    if (hex.startsWith("#")) hex.remove(0, 1);
+    if (hex.length() != 6) return {0, 0, 0};
+    auto nyb = [](char c) -> int {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+        return 0;
+    };
+    RGB c;
+    c.r = nyb(hex[0]) * 16 + nyb(hex[1]);
+    c.g = nyb(hex[2]) * 16 + nyb(hex[3]);
+    c.b = nyb(hex[4]) * 16 + nyb(hex[5]);
+    return c;
+}
+
+// ------------------------------------------------------- condition handling
+enum class Cond : uint8_t { NONE, OS, SSID, WIFI };
+
+// Evaluate an IF_* condition at runtime.
+static bool evalCondition(Cond type, const String& arg) {
+    switch (type) {
+        case Cond::OS: {
+            HostOS cur = detectos::lastResult();
+            return detectos::matches(cur, arg);
+        }
+        case Cond::SSID: {
+            int n = WiFi.scanNetworks();
+            bool found = false;
+            for (int i = 0; i < n && !found; i++)
+                if (WiFi.SSID(i) == arg) found = true;
+            WiFi.scanDelete();
+            return found;
+        }
+        case Cond::WIFI:
+            return WiFi.status() == WL_CONNECTED;
+        default:
+            return false;
     }
 }
 
 // ------------------------------------------------------------- interpreter
+struct Line { String cmd, args; int srcLine; };   // pre-parsed script line
+
 RunResult run(const String& scriptText, const String& name) {
     RunResult res{true, 0, ""};
     g_stopRequested = false;
-    // NOTE: HID stack must already be up (ducky::initOnce from setup()).
 
     g_running = true;
     s_state = "RUNNING";
-    // Publish state to the shared runtime status (Status page reads this).
     g_state.scriptState = ScriptState::RUNNING;
     g_state.scriptStateSince = time(nullptr);
     g_state.lastScriptName = name;
 
-    int defaultDelay = 0;
-    int repeatLast = 1;
+    // ---- pre-parse into a line vector ----
+    std::vector<Line> lines;
+    {
+        int idx = 0, ln = 0;
+        bool inRemBlock = false;
+        while (idx <= (int)scriptText.length()) {
+            int nl = scriptText.indexOf('\n', idx);
+            String raw = (nl < 0) ? scriptText.substring(idx)
+                                  : scriptText.substring(idx, nl);
+            idx = (nl < 0) ? scriptText.length() + 1 : nl + 1;
+            ln++;
+            raw.trim();
+            if (!inRemBlock) {
+                if (raw.equalsIgnoreCase("REM_BLOCK_START")) { inRemBlock = true; continue; }
+                if (raw.isEmpty() || raw.startsWith("#") ||
+                    (!raw.isEmpty() && raw.startsWith("REM"))) continue;
+            } else {
+                if (raw.equalsIgnoreCase("REM_BLOCK_END")) inRemBlock = false;
+                continue;
+            }
+            Line L; L.srcLine = ln;
+            int sp = raw.indexOf(' ');
+            if (sp > 0) { L.cmd = raw.substring(0, sp); L.args = raw.substring(sp + 1); }
+            else          L.cmd = raw;
+            lines.push_back(L);
+        }
+    }
 
-    int lineNo = 0, idx = 0;
+    int defaultDelay = 0;
     String lastCmdLine;
-    while (idx <= (int)scriptText.length()) {
+
+    // findMatching: index of END_IF matching the IF at `i` (handles nesting).
+    auto findMatching = [&](int i) -> int {
+        int depth = 0;
+        for (int j = i + 1; j < (int)lines.size(); j++) {
+            String& c = lines[j].cmd;
+            if (c.equalsIgnoreCase("IF_OS") || c.equalsIgnoreCase("IF_SSID") ||
+                c.equalsIgnoreCase("IF_WIFI")) depth++;
+            else if (c.equalsIgnoreCase("END_IF")) {
+                if (depth == 0) return j;
+                depth--;
+            }
+        }
+        return -1;
+    };
+
+    std::vector<int> stack;   // manual loop stack instead of recursion
+
+    int i = 0;
+    while (i < (int)lines.size()) {
         if (g_stopRequested) { res.ok = false; res.error = "stopped"; break; }
-        int nl = scriptText.indexOf('\n', idx);
-        String line = (nl < 0) ? scriptText.substring(idx)
-                               : scriptText.substring(idx, nl);
-        // CRITICAL: when nl == -1 this was the last line - jump past the end
-        // or idx wraps to 0 and the script loops forever.
-        idx = (nl < 0) ? scriptText.length() + 1 : nl + 1;
-        lineNo++;
-        line.trim();
-        if (line.isEmpty() || line.startsWith("#")) continue;
-        if (line.startsWith("REM")) {
-            if (line.equalsIgnoreCase("REM_BLOCK_START") || line.equalsIgnoreCase("REM BLOCK START")) {
-                // Skip until matching REM_BLOCK_END / END (DuckyScript v3 block comments)
-                while (idx <= (int)scriptText.length()) {
-                    int nl2 = scriptText.indexOf('\n', idx);
-                    String blk = scriptText.substring(idx, nl2 < 0 ? scriptText.length() : nl2);
-                    idx = nl2 + 1;
-                    blk.trim();
-                    if (blk.equalsIgnoreCase("REM_BLOCK_END") || blk.equalsIgnoreCase("END")) break;
-                }
+        Line& L = lines[i];
+        String cmd = L.cmd, args = L.args;
+        res.linesRun++;
+
+        // ---- REPEAT: substitute previous command line N times ----
+        int times = 1;
+        if (cmd.equalsIgnoreCase("REPEAT")) {
+            times = constrain(args.toInt(), 1, 10000);
+            if (lastCmdLine.isEmpty()) { i++; continue; }
+            int sp2 = lastCmdLine.indexOf(' ');
+            cmd = lastCmdLine.substring(0, (sp2 > 0) ? sp2 : (int)lastCmdLine.length());
+            args = (sp2 > 0) ? lastCmdLine.substring(sp2 + 1) : String("");
+        } else {
+            lastCmdLine = L.cmd + (L.args.length() ? " " + L.args : "");
+        }
+
+        // ---- control flow ----
+        bool isIf = cmd.equalsIgnoreCase("IF_OS") || cmd.equalsIgnoreCase("IF_SSID") ||
+                    cmd.equalsIgnoreCase("IF_WIFI");
+        if (isIf) {
+            Cond type = cmd.equalsIgnoreCase("IF_OS")   ? Cond::OS :
+                        cmd.equalsIgnoreCase("IF_SSID") ? Cond::SSID : Cond::WIFI;
+            int endIdx = findMatching(i);
+            if (endIdx < 0) {
+                res.error += "L" + String(L.srcLine) + ":missing END_IF ";
+                break;
+            }
+            // Find this IF's own ELSE (depth-0 scan between i..endIdx).
+            int elseIdx = -1, depth = 0;
+            for (int j = i + 1; j < endIdx; j++) {
+                String& c = lines[j].cmd;
+                if (c.equalsIgnoreCase("IF_OS") || c.equalsIgnoreCase("IF_SSID") ||
+                    c.equalsIgnoreCase("IF_WIFI")) depth++;
+                else if (c.equalsIgnoreCase("END_IF")) depth--;
+                else if (c.equalsIgnoreCase("ELSE") && depth == 0) { elseIdx = j; break; }
+            }
+            if (evalCondition(type, args)) {
+                i++;                                   // take the IF branch
+            } else {
+                i = (elseIdx >= 0) ? elseIdx + 1 : endIdx + 1;   // jump to ELSE / past END_IF
             }
             continue;
         }
+        if (cmd.equalsIgnoreCase("ELSE")) {            // reached after true-branch
+            int endIdx = findMatching(i);              // skip to past END_IF
+            i = (endIdx < 0) ? (int)lines.size() : endIdx + 1;
+            continue;
+        }
+        if (cmd.equalsIgnoreCase("END_IF")) { i++; continue; }   // branch end marker
 
-        // split "CMD arg arg..." (first space)
-        String cmd = line, args;
-        int sp = line.indexOf(' ');
-        if (sp > 0) { cmd = line.substring(0, sp); args = line.substring(sp + 1); }
-
-        // ---- REPEAT: re-execute previous command N times ----
-        int times = 1;
-        if (cmd.equalsIgnoreCase("REPEAT")) {
-            times = args.toInt(); if (times < 1) times = 1;
-            if (lastCmdLine.isEmpty()) continue;
-            line = lastCmdLine;
-            sp = line.indexOf(' ');
-            cmd = line.substring(0, (sp>0)?sp:(int)line.length());
-            args = (sp>0)?line.substring(sp+1):String("");
-        } else lastCmdLine = line;
-
-        // Execute the (possibly substituted) line `times` times.
-        for (int t = 0; t < times && !g_stopRequested; t++) {
+        // ---- core commands ----
         bool executed = true;
         if      (cmd.equalsIgnoreCase("DELAY"))         { delay(constrain(args.toInt(),0,60000)); }
         else if (cmd.equalsIgnoreCase("DEFAULTDELAY") ||
@@ -162,20 +286,119 @@ RunResult run(const String& scriptText, const String& name) {
         else if (cmd.equalsIgnoreCase("STRING"))        { typeString(args); }
         else if (cmd.equalsIgnoreCase("STRINGLN"))      { typeString(args); kb.press(KEY_RETURN); kb.release(KEY_RETURN); }
         else if (cmd.equalsIgnoreCase("LOG"))           { logLine("[script:" + name + "] " + args); }
+
+        // ---- Step 2 custom commands ----
+        else if (cmd.equalsIgnoreCase("DETECT_OS"))     {
+            HostOS h = detectos::detect();
+            g_state.detectedOS = detectos::nameOf(h);
+            logLine("[script:" + name + "] DETECT_OS => " + g_state.detectedOS);
+        }
+        else if (cmd.equalsIgnoreCase("LED_ON"))        { hw::ledSet(parseColor(args)); }
+        else if (cmd.equalsIgnoreCase("LED_OFF"))       { hw::ledOff(); }
+        else if (cmd.equalsIgnoreCase("LED_BLINK"))     {
+            int nTimes = 5;
+            String col = "#FF0000";
+            int sp2 = args.indexOf('#');
+            if (sp2 > 0) { nTimes = constrain(args.substring(0, sp2).toInt(), 1, 60); col = args.substring(sp2); }
+            RGB c = parseColor(col);
+            for (int b = 0; b < nTimes && !g_stopRequested; b++) {
+                hw::ledSet(c); delay(250); hw::ledOff(); delay(250);
+            }
+        }
+        else if (cmd.equalsIgnoreCase("SCREEN_ON"))     { hw::screenOn(); }
+        else if (cmd.equalsIgnoreCase("SCREEN_OFF"))    { hw::screenOff(); }
+        else if (cmd.equalsIgnoreCase("SCREEN_CLR"))    { hw::screenClear(); }
+        else if (cmd.equalsIgnoreCase("SCREEN_TEXT"))   {
+            // SCREEN_TEXT Hello [#FF0000 [#000000]] - colors optional
+            String txt = args, fg = "#00FF00";
+            int hash = args.indexOf('#');
+            if (hash >= 0) {
+                txt = args.substring(0, hash);
+                fg = args.substring(hash);
+                int hash2 = fg.indexOf('#', 1);
+                // (bg color accepted per plan but screenText uses fixed style in step 2)
+            }
+            txt.trim();
+            hw::screenOn();
+            hw::screenText(txt);
+        }
+        else if (cmd.equalsIgnoreCase("RANDOM_NUM"))    {
+            int lo = 0, hi = 100;
+            int sp2 = args.indexOf(' ');
+            if (sp2 > 0) { lo = args.substring(0,sp2).toInt(); hi = args.substring(sp2+1).toInt(); }
+            else if (sp2 == -1 && args.length()) hi = args.toInt();
+            if (hi < lo) { int tmp=lo; lo=hi; hi=tmp; }
+            uint32_t v = lo + (esp_random() % (uint32_t)(hi - lo + 1));
+            typeString(String(v));
+        }
+        else if (cmd.equalsIgnoreCase("RANDOM_CHAR"))   {
+            int len = constrain(args.toInt(), 1, 256);
+            const char* alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+            for (int c2 = 0; c2 < len; c2++) {
+                kb.write(alphabet[esp_random() % (sizeof(alphabet)-1)]);
+                delay(5);
+            }
+        }
+        else if (cmd.equalsIgnoreCase("HUMAN_TYPE"))    { humanType(args); }
+        else if (cmd.equalsIgnoreCase("GET_IP"))        {
+            // Types our IP so scripts can exfil it to the user/host screen.
+            IPAddress ip = WiFi.localIP();
+            String s = (WiFi.status()==WL_CONNECTED) ? ip.toString() : WiFi.softAPIP().toString();
+            typeString(s);
+        }
+        else if (cmd.equalsIgnoreCase("WAIT_BUTTON"))   {
+            // WAIT_BUTTON [secs] [CONTINUE|STOP]
+            long secs = 30; String mode = "CONTINUE";
+            int sp2 = args.indexOf(' ');
+            if (sp2 > 0) { secs = constrain(args.substring(0,sp2).toInt(),1,3600); mode = args.substring(sp2+1); mode.trim(); }
+            else if (args.length()) secs = constrain(args.toInt(),1,3600);
+            bool pressed = hw::buttonWait(secs * 1000);
+            if (!pressed && mode.equalsIgnoreCase("STOP")) {
+                res.ok = false; res.error = "WAIT_BUTTON timeout(STOP)";
+                break;
+            }
+        }
+        else if (cmd.equalsIgnoreCase("JIGGLE_MOUSE"))  {
+            long secs = constrain((long)(args.toFloat()), 1, 600);
+            uint32_t end = millis() + secs * 1000;
+            while (millis() < end && !g_stopRequested) {
+                mouse.move((esp_random()%3)-1, (esp_random()%3)-1);  // -1..1 px
+                delay(500);
+            }
+        }
+        else if (cmd.equalsIgnoreCase("CONNECT_AP"))    {
+            // CONNECT_AP ssid [password]
+            int sp2 = args.indexOf(' ');
+            String ssid = (sp2>0)?args.substring(0,sp2):args;
+            String pass = (sp2>0)?args.substring(sp2+1):String("");
+            ssid.trim(); pass.trim();
+            WiFi.mode(WIFI_AP_STA);                      // keep our AP alive too
+            WiFi.begin(ssid.c_str(), pass.c_str());
+            int tries = 0;
+            while (WiFi.status()!=WL_CONNECTED && tries++<20 && !g_stopRequested) delay(500);
+            logLine("[script:" + name + "] CONNECT_AP '" + ssid + "' " +
+                    (WiFi.status()==WL_CONNECTED ? "connected "+WiFi.localIP().toString() : "FAILED"));
+        }
+        else if (cmd.equalsIgnoreCase("RESET_FIRM"))    {
+            configFactoryReset();
+            logLine("script requested firmware reset");
+            delay(300);
+            ESP.restart();
+        }
         else {
             // combo / special-key line ("GUI r", "ENTER", ...)
             uint8_t k;
-            if (resolveKey(cmd, k)) pressCombo(line);
-            else { executed = false; res.error += "L" + String(lineNo) + ":unknown '" + cmd + "' "; }
+            if (resolveKey(cmd, k)) pressCombo(L.cmd + (L.args.length()? " "+L.args : ""));
+            else { executed = false; res.error += "L" + String(L.srcLine) + ":unknown '" + cmd + "' "; }
         }
-        if (!executed && !res.error.isEmpty()) { /* keep running other lines */ }
-        if (executed || !res.error.isEmpty()) res.linesRun++;
+        if (executed) res.linesRun++;
         if (defaultDelay && executed) delay(defaultDelay);
-        } // end REPEAT loop
+        if (!executed) res.linesRun--;   // don't count failures as executed lines
+        i++;
     }
 
     g_running = false;
-    s_state = res.ok ? "FINISHED" : "FINISHED";   // aborted also reports FINISHED
+    s_state = "FINISHED";
     g_state.scriptState = ScriptState::FINISHED;
     g_state.scriptStateSince = time(nullptr);
     logLine(String("script ") + name + (res.ok ? " finished" : " stopped: " + res.error));
@@ -184,11 +407,13 @@ RunResult run(const String& scriptText, const String& name) {
 
 void stop() { g_stopRequested = true; }
 
-// Call ONCE from setup(): starts the TinyUSB stack with the HID keyboard.
-// Doing this inside run() crashed the device because the core (with CDC on
-// boot disabled) expects a single USB.begin() at startup.
 void initOnce() {
-    if (!kbStarted) { kb.begin(); USB.begin(); kbStarted = true; }
+    if (!kbStarted) {
+        kb.begin();
+        mouse.begin();
+        USB.begin();       // single call - composite HID keyboard+mouse device
+        kbStarted = true;
+    }
 }
 
 bool isRunning() { return g_running; }

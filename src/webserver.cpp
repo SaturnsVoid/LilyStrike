@@ -105,6 +105,7 @@ static void hStatus() {
          ",\"ip\":\"" + localIP() + "\"" +
          ",\"scriptState\":\"" + ducky::stateString() + "\"" +
          ",\"scriptName\":\"" + g_state.lastScriptName + "\"" +
+         ",\"detectedOS\":\"" + g_state.detectedOS + "\"" +
          ",\"scriptSince\":" + String((uint32_t)g_state.scriptStateSince) +
          "}";
     json(200, s);

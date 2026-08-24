@@ -49,6 +49,7 @@ struct RuntimeState {
     time_t      scriptStateSince = 0;
     String      lastScriptName = "-";
     bool        usbHostPresent = false;   // plugged into a PC vs powerbank
+    String      detectedOS = "Unknown";   // Step 2: last DETECT_OS result
 };
 extern RuntimeState g_state;
 

@@ -249,7 +249,7 @@ async function refreshStatus(){
    <tr><td>Uptime</td><td>${hh}h ${mm}m ${ss}s</td></tr>
    <tr><td>Flash</td><td>${(s.flashSize/1048576)|0} MB</td></tr>
    <tr><td>SD Free</td><td>${s.sdTotal?((s.sdFree/1048576).toFixed(1)+" / "+(s.sdTotal/1048576).toFixed(1)+" MB"):"not detected"}</td></tr>
-   <tr><td>Connection</td><td>${s.usbHost?"Plugged into computer":"Power only"}</td></tr>
+   <tr><td>Connection</td><td>${s.usbHost?"Plugged into computer":"Power only"}${s.detectedOS&&s.detectedOS!=="Unknown"?" &mdash; "+esc(s.detectedOS):""}</td></tr>
    <tr><td>WiFi AP</td><td>${s.ip} (${s.wifiClients} client(s))</td></tr>
    <tr><td>Script</td><td><span class="badge ${st[0]}">${st[1]}</span> ${esc(s.scriptName)}</td></tr>`;
 }
@@ -313,8 +313,18 @@ function refPanel(){
    ["STRING txt","Type text"],["STRINGLN txt","Type text + Enter"],["ENTER / SPACE / TAB","Keys"],
    ["GUI/CTRL/ALT/SHIFT combo","e.g. `GUI r`, `CTRL-SHIFT ESC`"],["BACKSPACE/DELETE/ESC/...","Special keys"],
    ["F1..F12","Function keys"],["REPEAT n","Repeat previous line n times"],
-   ["LOG msg","Write msg to encrypted device log"]];
-  return `<div class="panel"><h2>DuckyScript Reference</h2><table>${
+   ["LOG msg","Write msg to encrypted device log"],
+   ["DETECT_OS","Fingerprint host OS (~10s)"],
+   ["IF_OS windows/linux/macos/ios/android/chromeos ... ELSE ... END_IF","OS branch"],
+   ["IF_SSID name / IF_WIFI ... END_IF","WiFi conditions (scan / station connected)"],
+   ["LED_ON #RRGGBB | LED_OFF | LED_BLINK n #RRGGBB","Status LED control"],
+   ["SCREEN_ON/OFF/CLEAR","Backlight + display"],["SCREEN_TEXT txt [#RRGGBB]","Show text on screen"],
+   ["RANDOM_NUM min max","Type random number"],["RANDOM_CHAR len","Type random string"],
+   ["HUMAN_TYPE txt","~40wpm jittered typing"],["GET_IP","Type device IP address"],
+   ["WAIT_BUTTON [secs] [CONTINUE|STOP]","Wait for BOOT button press"],
+   ["JIGGLE_MOUSE secs","Subtle mouse motion (anti-sleep)"],
+   ["CONNECT_AP ssid [pass]","Join WiFi as client"],["RESET_FIRM","Factory reset + reboot"]];
+  return `<div class="panel"><h2>Command Reference</h2><table>${
     rows.map(r=>`<tr><td><b>${r[0]}</b></td><td class="muted">${r[1]}</td></tr>`).join("")}</table></div>`;
 }
 
