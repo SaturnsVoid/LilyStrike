@@ -74,8 +74,7 @@ function toolsView() {
       <button class="small" onclick="addAuto()">Add to queue</button>
       <button class="small" onclick="clearAuto()">Clear</button>
     </div>
-  </div>
-  ${refPanel()}`;
+  </div>`;
   // Normalise CRLF -> LF and wire up editor events once per render.
   const code = CODE();
   code.value = code.value.replace(/\r\n?/g, "\n");
@@ -307,25 +306,157 @@ async function permDisable(){
   toast("Interface will stay off after next reboot.","err");
 }
 
-/* ======================= COMMAND REFERENCE PANEL ====================== */
-function refPanel(){
-  const rows=[["REM x","Comment"],["DELAY ms","Wait"],["DEFAULTDELAY ms","Delay after every command"],
-   ["STRING txt","Type text"],["STRINGLN txt","Type text + Enter"],["ENTER / SPACE / TAB","Keys"],
-   ["GUI/CTRL/ALT/SHIFT combo","e.g. `GUI r`, `CTRL-SHIFT ESC`"],["BACKSPACE/DELETE/ESC/...","Special keys"],
-   ["F1..F12","Function keys"],["REPEAT n","Repeat previous line n times"],
-   ["LOG msg","Write msg to encrypted device log"],
-   ["DETECT_OS","Fingerprint host OS (~10s)"],
-   ["IF_OS / IF_SSID / IF_WIFI value ... ELSE_IF val ... ELSE ... END_IF","Condition blocks (ELSE_IF inherits parent type)"],
-   ["IF_SSID name / IF_WIFI ... END_IF","WiFi conditions (scan / station connected)"],
-   ["LED_ON #RRGGBB | LED_OFF | LED_BLINK n #RRGGBB","Status LED control"],
-   ["SCREEN_ON/OFF/CLEAR","Backlight + display"],["SCREEN_TEXT txt [#RRGGBB]","Show text on screen"],
-   ["RANDOM_NUM min max","Type random number"],["RANDOM_CHAR len","Type random string"],
-   ["HUMAN_TYPE txt","~40wpm jittered typing"],["GET_IP","Type device IP address"],
-   ["WAIT_BUTTON [secs] [CONTINUE|STOP]","Wait for BOOT button press"],
-   ["JIGGLE_MOUSE secs","Subtle mouse motion (anti-sleep)"],
-   ["CONNECT_AP ssid [pass]","Join WiFi as client"],["RESET_FIRM","Factory reset + reboot"]];
-  return `<div class="panel"><h2>Command Reference</h2><table>${
-    rows.map(r=>`<tr><td><b>${r[0]}</b></td><td class="muted">${r[1]}</td></tr>`).join("")}</table></div>`;
+/* =========================== REFERENCE VIEW ============================ */
+// Grouped, detailed command documentation + loadable sample programs.
+const CMD_DOCS = [
+ ["Core DuckyScript", [
+  ["DELAY <ms>","Pause for ms milliseconds (max 60000)."],
+  ["DEFAULTDELAY <ms>","Delay inserted after every command line. Set once at the top of the script."],
+  ["STRING <text>","Types text exactly (5ms/char pacing)."],
+  ["STRINGLN <text>","Types text then presses Enter."],
+  ["GUI / CTRL / ALT / SHIFT / ALTGR combos","Hold modifiers and tap keys: `GUI r`, `CTRL-SHIFT ESC`. Single keys can be used alone: `ENTER`, `F5`."],
+  ["Special keys","ENTER SPACE TAB ESC ESCAPE BACKSPACE DELETE DEL HOME END INSERT PAGEUP PAGEDOWN CAPSLOCK APP UP DOWN LEFT RIGHT (+ARROW variants)"],
+  ["REPEAT <n>","Re-executes the previous command line n times."],
+  ["REM <text> / REM_BLOCK_START ... REM_BLOCK_END","Comments."],
+ ]],
+ ["Logic & Detection", [
+  ["DETECT_OS","Fingerprints the host OS via the keyboard-LED side-channel (~10 seconds; toggles your lock keys and restores them). Result is cached for IF_OS and shown on the Status page."],
+  ["IF_OS <windows|linux|macos|ios|android|chromeos|unknown>","Runs block if detected OS matches. Requires DETECT_OS to have run first (otherwise compares against Unknown)."],
+  ["IF_SSID <name>","True if a WiFi AP with that SSID is currently visible (scans ~2s)."],
+  ["IF_WIFI","True if the device is connected to a network as client (after CONNECT_AP)."],
+  ["ELSE_IF <value>","Alternative branch; inherits the parent condition type (OS vs SSID). Evaluated lazily."],
+  ["ELSE","Fallback branch. All blocks end with END_IF; nesting is supported."],
+ ]],
+ ["Device Hardware", [
+  ["LED_ON #RRGGBB","Light the status LED with a hex color, e.g. `LED_ON #00FF00`."],
+  ["LED_OFF","Turn the LED off."],
+  ["LED_BLINK <times> #RRGGBB","Blink n times (250ms on/off). Default: 5x red."],
+  ["SCREEN_ON / SCREEN_OFF","Backlight on/off."],
+  ["SCREEN_TEXT <text> [#RRGGBB]","Show text on the screen, optional color."],
+  ["SCREEN_CLR","Clear the display."],
+  ["WAIT_BUTTON [secs] [CONTINUE|STOP]","Wait for the BOOT button. On timeout either continue or stop the script. Defaults: 30 CONTINUE."],
+ ]],
+ ["Input & Randomness", [
+  ["HUMAN_TYPE <text>","Types at ~40 wpm with random jitter - looks human, beats timing analysis."],
+  ["RANDOM_NUM <min> <max>","Types a random number in range."],
+  ["RANDOM_CHAR <len>","Types len random alphanumeric characters (good for fake passwords)."],
+  ["JIGGLE_MOUSE <secs>","Move the mouse +/-1px every half second so the host never sleeps. Subtle by design."],
+ ]],
+ ["Network & System", [
+  ["GET_IP","Types the device IP address (station IP if connected, else our own AP IP)."],
+  ["CONNECT_AP <ssid> [password]","Join a WiFi network as client while keeping the config AP alive. Logs result."],
+  ["RESET_FIRM","Factory-reset all settings and reboot. DESTRUCTIVE - use with care."],
+  ["LOG <message>","Write a message to the encrypted device log (visible on Status page)."],
+ ]],
+];
+
+const SAMPLES = [
+ ["Hello Notepad", "Opens Notepad on Windows and types a message.",
+`REM Basic Windows payload
+DELAY 1000
+GUI r
+DELAY 500
+STRING notepad
+ENTER
+DELAY 1000
+STRING Hello from your T-Dongle-S3!
+`],
+ ["OS-Aware Greeting", "Detects the OS and opens the right run dialog.",
+`DETECT_OS
+IF_OS windows
+  DELAY 1000
+  GUI r
+  STRING notepad
+  ENTER
+ELSE_IF macos
+  DELAY 1000
+  GUI SPACE
+  STRING textedit
+  ENTER
+ELSE_IF linux
+  ALT F2
+  STRING gedit
+  ENTER
+ELSE
+  LOG unknown host OS
+END_IF
+`],
+ ["Stealth Check", "Waits for you to press BOOT before firing.",
+`REM Wait up to 60s for button press; abort if nobody does
+WAIT_BUTTON 60 STOP
+DELAY 1000
+LED_BLINK 3 #00FF00
+GUI r
+STRING notepad
+ENTER
+DELAY 800
+STRING Button-triggered!
+`],
+ ["Human Typing Demo", "Random password + human-like typing.",
+`DELAY 1000
+STRING username: admin
+ENTER
+STRING password: 
+RANDOM_CHAR 12
+ENTER
+DELAY 500
+HUMAN_TYPE This sentence was typed like a human at about forty words per minute.
+`],
+ ["Network Report", "Joins WiFi and reports the device IP into Notepad.",
+`DELAY 1000
+GUI r
+STRING cmd
+ENTER
+DELAY 1500
+CONNECT_AP MyHomeNetwork MyPassword
+IF_WIFI
+  STRING Device IP:
+  GET_IP
+  ENTER
+ELSE
+  STRING Could not connect to WiFi
+  ENTER
+END_IF
+`],
+ ["Light Show", "Pure hardware demo - no host needed.",
+`LED_BLINK 3 #FF0000
+LED_ON #00FF00
+DELAY 1000
+LED_OFF
+SCREEN_TEXT Dongle alive! #00FF00
+DELAY 2000
+SCREEN_CLR
+SCREEN_OFF
+`],
+];
+
+function refView(){
+  let html = `<div class="panel"><h2>DuckyScript Command Reference</h2>
+    <p class="muted">Custom commands marked in <b style="color:var(--accent)">bold groups</b> are extensions beyond standard DuckyScript v3.</p>`;
+  for(const [group, cmds] of CMD_DOCS){
+    html += `<h3 style="color:var(--accent);margin-bottom:4px">${group}</h3><table>`;
+    for(const [cmd, desc] of cmds)
+      html += `<tr><td style="width:40%"><b>${esc(cmd)}</b></td><td class="muted">${esc(desc)}</td></tr>`;
+    html += `</table>`;
+  }
+  html += `</div><div class="panel"><h2>Sample Programs</h2>
+    <p class="muted">Click Load to open a sample in the editor.</p><table id="samples">`;
+  for(const [title,desc,code] of SAMPLES)
+    html += `<tr><td><b>${esc(title)}</b><br><span class="muted" style="font-size:13px">${esc(desc)}</span></td>
+      <td style="width:auto"><button class="small" onclick="loadSample('${esc(title)}')">Load</button></td></tr>`;
+  html += `</table></div>`;
+  view.innerHTML = html;
+}
+function loadSample(title){
+  const s = SAMPLES.find(x=>x[0]===title); if(!s) return;
+  location.hash = "#tools";
+  // toolsView renders on hashchange; wait one tick then fill the editor
+  setTimeout(()=>{
+    CODE().value = s[2].replace(/\r\n?/g,"\n");
+    $("#scriptName").value = title.toLowerCase().replace(/[^a-z0-9]+/g,"_")+".ds";
+    syncGutter();
+    toast("Sample loaded: "+title);
+  }, 50);
 }
 
 /* ============================== ROUTER ================================ */
@@ -334,6 +465,7 @@ function route(){
   const h=location.hash||"#tools";
   document.querySelectorAll("nav a").forEach(a=>a.classList.toggle("active",a.getAttribute("href")===h));
   if(h==="#files")filesView();
+  else if(h==="#reference")refView();
   else if(h==="#status")statusView();
   else if(h==="#settings")settingsView();
   else toolsView();
