@@ -12,45 +12,31 @@
 #include "pins.h"
 #include "config.h"
 #include <SPI.h>
+#include <APA102.h>
 
 namespace hw {
 
 Adafruit_ST7735* tft = nullptr;
 static bool sdOK = false;
 static volatile bool btnFlag = false;
+static bool s_screenOn = false;
+
+// Pololu APA102 software-SPI on the SDK pin map (DI=40, CI=39).
+static APA102<LED_DI_PIN, LED_CI_PIN> apaStrip;
+static const uint16_t APA_COUNT = 1;
+static rgb_color apaBuf[APA_COUNT];
+static const uint8_t APA_BRIGHT = 10;   // 0-31; this LED is blinding at max
 
 // ---------------------------------------------------------------------------
-// APA102 protocol: 32 zero start bits, one 0xFF-frame per LED
-// (111A AAAA BBBB BBBB GGGG GGGG RRRR RRRR), then >=32 one stop bits.
-// We bit-bang because the LED shares no hardware SPI bus with anything else.
-// ---------------------------------------------------------------------------
-// Bit-bang style copied from lily_ducky's proven sendAPA102(): clock idles
-// LOW, data is set first, then the clock pulses HIGH->LOW (rising-edge latch).
-static void apaBit(uint8_t b) {
-    digitalWrite(s_ledPins.ci, LOW);
-    digitalWrite(s_ledPins.di, b & 1);
-    digitalWrite(s_ledPins.ci, HIGH);
-    digitalWrite(s_ledPins.ci, LOW);
-}
-static void apaByte(uint8_t b) { for (int i = 7; i >= 0; i--) apaBit((b >> i) & 1); }
-
-// Switch the DI/CI pin mapping at runtime (board revision probing).
-void ledUsePins(uint8_t di, uint8_t ci) {
-    s_ledPins = {di, ci};
-    pinMode(s_ledPins.di, OUTPUT); digitalWrite(s_ledPins.di, LOW);
-    pinMode(s_ledPins.ci, OUTPUT); digitalWrite(s_ledPins.ci, LOW);
-}
-
+// APA102 via Pololu library (proven on this board by USBArmyKnife).
 void ledSet(const RGB& c) {
-    // APA102 global brightness: 5-bit scalar packed as 111xxxxx.
-    uint8_t gb = 0xE0 | APA102_BRIGHTNESS;
-    for (int i = 0; i < 4; i++) apaByte(0x00);          // start frame (32 zero bits)
-    apaByte(0xFF); apaByte(gb);
-    apaByte(c.b); apaByte(c.g); apaByte(c.r);           // B,G,R order!
-    for (int i = 0; i < 4; i++) apaByte(0xFF);          // end frame
+    apaBuf[0] = rgb_color(c.r, c.g, c.b);
+    apaStrip.write(apaBuf, APA_COUNT, APA_BRIGHT);
 }
-
-void ledOff() { RGB z = {0,0,0}; ledSet(z); }
+void ledOff() {
+    apaBuf[0] = rgb_color(0, 0, 0);
+    apaStrip.write(apaBuf, APA_COUNT, 0);   // brightness 0 = fully dark
+}
 
 static bool backlightPWM = false;   // true once ledc attached
 
@@ -108,7 +94,17 @@ void screenOn() {
 #else
     ledcWrite(0, cfg.screenBrightness);
 #endif
+    s_screenOn = true;
     if (tft) { tft->fillScreen(ST77XX_BLACK); tft->setTextColor(ST77XX_MAGENTA); }
+}
+bool screenIsOn() { return s_screenOn; }
+// Push cfg.screenBrightness to the PWM without touching anything else.
+void applyBrightness() {
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    if (backlightPWM) ledcWrite(PIN_NUM_BCKL, cfg.screenBrightness);
+#else
+    if (backlightPWM) ledcWrite(0, cfg.screenBrightness);
+#endif
 }
 void screenOff() {
     // After ledcAttach() the pin is PWM-owned: digitalWrite is ignored.
@@ -117,6 +113,8 @@ void screenOff() {
     if (backlightPWM) { ledcWrite(PIN_NUM_BCKL, 0); ledcDetach(PIN_NUM_BCKL); backlightPWM = false; }
 #endif
     pinMode(PIN_NUM_BCKL, OUTPUT); digitalWrite(PIN_NUM_BCKL, LOW);
+    backlightPWM = false;   // pin released from PWM - digitalWrite works again
+    s_screenOn = false;
 }
 
 void screenClear() { if (tft) tft->fillScreen(ST77XX_BLACK); }
