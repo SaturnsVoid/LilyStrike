@@ -208,10 +208,18 @@ static void loadAutostart() {
         }
     }
 }
-static void saveAutostart() {
+// Returns false if the SD write failed (surfaced to the UI).
+// NOTE: an EMPTY list must DELETE the file - encryptToFile refuses zero-length
+// plaintext, and leaving the stale file behind made removed scripts reappear
+// on every reload.
+static bool saveAutostart() {
+    if (s_autostartCount == 0) {
+        SD_MMC.remove("/autostart.enc");
+        return true;
+    }
     String t;
     for (int i = 0; i < s_autostartCount; i++) t += String(s_autostart[i].name) + "\n";
-    encryptToFile("/autostart.enc", t);
+    return encryptToFile("/autostart.enc", t);
 }
 
 static void runScriptTask(void* pv) {
@@ -269,7 +277,7 @@ static void hAutostartSet() {
     }
     bool ok = true;   // track SD write result so failures aren't silent
     if (!hw::sdMount()) ok = false;
-    else saveAutostart();
+    else ok = saveAutostart();
     logLine("web: autostart set to " + String(s_autostartCount) + " script(s)" +
             (ok ? "" : " (SD WRITE FAILED)"));
     json(ok ? 200 : 500,
