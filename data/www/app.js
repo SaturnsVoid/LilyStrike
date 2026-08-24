@@ -323,6 +323,7 @@ const CMD_DOCS = [
   ["DETECT_OS","Fingerprints the host OS via the keyboard-LED side-channel (~10 seconds; toggles your lock keys and restores them). Result is cached for IF_OS and shown on the Status page."],
   ["IF_OS <windows|linux|macos|ios|android|chromeos|unknown>","Runs block if detected OS matches. Requires DETECT_OS to have run first (otherwise compares against Unknown)."],
   ["IF_SSID <name>","True if a WiFi AP with that SSID is currently visible (scans ~2s)."],
+  ["IF <expr>","Compare value commands: `IF GET_IP = 192.168.0.1`, `IF WIFI_CONNECTED != false`. Bare `IF DETECT_OS` is truthy when non-empty. Whole-token value commands (GET_IP, DETECT_OS, WIFI_CONNECTED, RANDOM_NUM min max, RANDOM_CHAR len) can also be embedded in STRING/STRINGLN/HUMAN_TYPE payloads and are replaced with their live values."],
   ["IF_WIFI","True if the device is connected to a network as client (after CONNECT_AP)."],
   ["ELSE_IF <value>","Alternative branch; inherits the parent condition type (OS vs SSID). Evaluated lazily."],
   ["ELSE","Fallback branch. All blocks end with END_IF; nesting is supported."],

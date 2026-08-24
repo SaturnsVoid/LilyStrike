@@ -141,7 +141,87 @@ static RGB parseColor(String hex) {
 }
 
 // ------------------------------------------------------- condition handling
-enum class Cond : uint8_t { NONE, OS, SSID, WIFI };
+enum class Cond : uint8_t { NONE, OS, SSID, WIFI, EXPR };
+
+// ---------------------------------------------------------------- values
+// "Value commands" can be evaluated to a string. They are substituted inside
+// STRING/STRINGLN/HUMAN_TYPE payloads (whole-token matches) and usable on the
+// left side of IF comparisons:  IF GET_IP = 192.168.0.1
+static String evalValueCmd(String token) {
+    token.trim();
+    String up = token; up.toUpperCase();
+    if (up == "GET_IP") {
+        return (WiFi.status()==WL_CONNECTED) ? WiFi.localIP().toString()
+                                             : WiFi.softAPIP().toString();
+    }
+    if (up == "DETECT_OS")   return detectos::nameOf(detectos::lastResult());
+    if (up == "WIFI_CONNECTED") return WiFi.status()==WL_CONNECTED ? "true":"false";
+    // Parameterised value commands: NAME arg [arg]
+    int sp = token.indexOf(' ');
+    String name = (sp>0)?token.substring(0,sp):token;
+    String rest = (sp>0)?token.substring(sp+1):String("");
+    name.trim(); String nmUp = name; nmUp.toUpperCase();
+    if (nmUp == "RANDOM_NUM") {
+        int lo=0, hi=100, sp2=rest.indexOf(' ');
+        if (sp2>0){lo=rest.substring(0,sp2).toInt();hi=rest.substring(sp2+1).toInt();}
+        else if (rest.length()) hi=rest.toInt();
+        if (hi<lo){int t=lo;lo=hi;hi=t;}
+        return String(lo + (esp_random() % (uint32_t)(hi-lo+1)));
+    }
+    if (nmUp == "RANDOM_CHAR") {
+        int len = constrain(rest.toInt(),1,256);
+        const char* alpha="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        String out; for(int i2=0;i2<len;i2++) out+=alpha[esp_random()%(sizeof(alpha)-1)];
+        return out;
+    }
+    return "";   // not a value command
+}
+
+// Replace whole-word occurrences of value-command tokens with their values.
+// Only whole words match so literal sentences stay intact.
+static String substValues(const String& s) {
+    String out, tok;
+    auto flush=[&](){
+        if (tok.length()) {
+            String v = evalValueCmd(tok);
+            out += v.length() ? v : tok;
+            tok = "";
+        }
+    };
+    for (size_t k=0; k<=s.length(); k++) {
+        char ch = (k<s.length())?s[k]:' ';
+        if (ch==' ') { flush(); if(k<s.length()) out+=' '; }
+        else tok += ch;
+    }
+    return out;
+}
+
+// EXPR: "<value-cmd> [=|!=] <literal>" or bare truthy check.
+// Returns empty error-string on success, else a problem description.
+static String evalExpr(const String& exprIn, bool& result) {
+    String e = exprIn; e.trim();
+    // find comparison operator
+    int opIdx=-1, opLen=0;
+    for (int k=0;k+1<(int)e.length();k++) {
+        if (e[k]=='!'&&e[k+1]=='=') { opIdx=k; opLen=2; break; }
+        if (e[k]=='='&&e[k+1]!='=') { opIdx=k; opLen=1; break; }
+    }
+    String left=e, right="", op="==";
+    if (opIdx>=0) {
+        left=e.substring(0,opIdx); right=e.substring(opIdx+opLen); op=(opLen==2?"!=":"==");
+        left.trim(); right.trim();
+        if (right.startsWith("\"") && right.endsWith("\"") && right.length()>=2)
+            right=right.substring(1,right.length()-1);
+    }
+    String lv = evalValueCmd(left);
+    if (!lv.length() && !left.isEmpty()) {
+        // not a value command - treat as bare literal truthiness
+        lv = left;
+    }
+    if (opIdx<0) { result = (lv.length()>0 && lv!="false" && lv!="0"); return ""; }
+    result = (op=="==") ? (lv==right) : (lv!=right);
+    return "";
+}
 
 // Evaluate an IF_* condition at runtime.
 static bool evalCondition(Cond type, const String& arg) {
@@ -160,6 +240,11 @@ static bool evalCondition(Cond type, const String& arg) {
         }
         case Cond::WIFI:
             return WiFi.status() == WL_CONNECTED;
+        case Cond::EXPR: {
+            bool r = false;
+            evalExpr(arg, r);
+            return r;
+        }
         default:
             return false;
     }
@@ -172,6 +257,7 @@ struct Line { String cmd, args; int srcLine; };   // pre-parsed script line
 static Cond condTypeOf(const String& cmd) {
     if (cmd.equalsIgnoreCase("IF_SSID") ) return Cond::SSID;
     if (cmd.equalsIgnoreCase("IF_WIFI") ) return Cond::WIFI;
+    if (cmd.equalsIgnoreCase("IF") )       return Cond::EXPR;  // generic IF <expr>
     return Cond::OS;   // IF_OS and bare ELSE_IF default to OS comparison
 }
 
@@ -232,7 +318,7 @@ RunResult run(const String& scriptText, const String& name) {
     };
     auto isIfCmd = [](const String& c) {
         return c.equalsIgnoreCase("IF_OS") || c.equalsIgnoreCase("IF_SSID") ||
-               c.equalsIgnoreCase("IF_WIFI");
+               c.equalsIgnoreCase("IF_WIFI") || c.equalsIgnoreCase("IF");
     };
 
     // Pending IF blocks whose TRUE branch is executing; top = current block.
@@ -317,8 +403,8 @@ RunResult run(const String& scriptText, const String& name) {
         if      (cmd.equalsIgnoreCase("DELAY"))         { delay(constrain(args.toInt(),0,60000)); }
         else if (cmd.equalsIgnoreCase("DEFAULTDELAY") ||
                  cmd.equalsIgnoreCase("DEFAULT_DELAY")) { defaultDelay = constrain(args.toInt(),0,60000); }
-        else if (cmd.equalsIgnoreCase("STRING"))        { typeString(args); }
-        else if (cmd.equalsIgnoreCase("STRINGLN"))      { typeString(args); kb.press(KEY_RETURN); kb.release(KEY_RETURN); }
+        else if (cmd.equalsIgnoreCase("STRING"))        { typeString(substValues(args)); }
+        else if (cmd.equalsIgnoreCase("STRINGLN"))      { typeString(substValues(args)); kb.press(KEY_RETURN); kb.release(KEY_RETURN); }
         else if (cmd.equalsIgnoreCase("LOG"))           { logLine("[script:" + name + "] " + args); }
 
         // ---- Step 2 custom commands ----
@@ -373,7 +459,7 @@ RunResult run(const String& scriptText, const String& name) {
                 delay(5);
             }
         }
-        else if (cmd.equalsIgnoreCase("HUMAN_TYPE"))    { humanType(args); }
+        else if (cmd.equalsIgnoreCase("HUMAN_TYPE"))    { humanType(substValues(args)); }
         else if (cmd.equalsIgnoreCase("GET_IP"))        {
             // Types our IP so scripts can exfil it to the user/host screen.
             IPAddress ip = WiFi.localIP();
