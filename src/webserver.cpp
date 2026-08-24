@@ -335,7 +335,14 @@ static void hMkdir() {
 // ---- hardware test endpoints (also used by Step-2 SCREEN_/LED_ commands) ---
 static void hDevLed() {
     requireAuth(); if (!isAuthed()) return;
-    // /api/dev/led?r=255&g=0&b=0   or   /api/dev/led?off=1
+    // /api/dev/led?r=255&g=0&b=0   /api/dev/led?off=1
+    // map=a|b switches DI/CI wiring (board revisions differ); a=DI40/CI39,
+    // b=DI39/CI40. Test both and tell us which one lights correctly.
+    if (server.hasArg("map")) {
+        if (server.arg("map") == "b") hw::ledUsePins(LED_CI_PIN, LED_DI_PIN);  // swapped
+        else                            hw::ledUsePins(LED_DI_PIN, LED_CI_PIN); // default
+        return json(200, String("{\"ok\":true,\"map\":\"") + server.arg("map") + "\"}");
+    }
     if (server.arg("off") == "1") { hw::ledOff(); return json(200, "{\"ok\":true}"); }
     RGB c{(uint8_t)server.arg("r").toInt(),
           (uint8_t)server.arg("g").toInt(),

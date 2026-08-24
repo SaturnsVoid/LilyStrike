@@ -2,6 +2,7 @@
 // hw.h - Hardware abstraction: SD, TFT, APA102 LED, BOOT button
 // ============================================================================
 #pragma once
+#include "pins.h"
 #include <Arduino.h>
 #include <SD_MMC.h>
 #include <Adafruit_ST7735.h>
@@ -14,12 +15,17 @@ namespace hw {
 bool initAll();
 
 // ---- LED (APA102) ---------------------------------------------------------
+// Board revisions route the dotstar differently - pins are switchable at
+// runtime so we can probe which mapping the plugged-in dongle uses.
+struct LedPins { uint8_t di, ci; };
+static LedPins s_ledPins = {LED_DI_PIN, LED_CI_PIN};   // default = SDK mapping
+void ledUsePins(uint8_t di, uint8_t ci);
 void ledSet(const RGB& c);          // set + show
 void ledOff();
 
 // ---- Screen ---------------------------------------------------------------
 void screenOn();                    // backlight on
-void screenOff();
+void screenOff();                   // works even after PWM was attached
 void screenClear();                 // fill black
 void screenText(const String& t);   // simple status text line(s)
 extern Adafruit_ST7735* tft;        // raw access for future steps

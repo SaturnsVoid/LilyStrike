@@ -74,7 +74,7 @@ static void pressCombo(const String& args) {
         if (tok.length()) {
             uint8_t k;
             if (resolveKey(tok, k)) {
-                if (lookup(MODS, sizeof(MODS)/sizeof(MODS[0]), tok, k)) kb.press(k), held |= 0; // press modifier
+                if (lookup(MODS, sizeof(MODS)/sizeof(MODS[0]), tok, k)) kb.press(k), held |= 0; // hold modifier
                 else taps.push_back(k);
             }
         }
@@ -83,10 +83,16 @@ static void pressCombo(const String& args) {
     }
     for (auto t : taps) { kb.press(t); delay(8); kb.release(t); }
     kb.releaseAll();
+    delay(100);   // host settle time after combos (e.g. Windows Run dialog)
 }
 
-// Type a string verbatim (ASCII; unicode not needed in step 1).
-static void typeString(const String& s) { kb.print(s); }
+// Type a string verbatim at a pace every host can keep up with.
+static void typeString(const String& s) {
+    for (size_t i = 0; i < s.length(); i++) {
+        kb.write(s[i]);
+        delay(5);            // keystroke pacing; prevents dropped characters
+    }
+}
 
 // ------------------------------------------------------------- interpreter
 RunResult run(const String& scriptText, const String& name) {

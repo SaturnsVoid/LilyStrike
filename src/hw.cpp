@@ -27,12 +27,19 @@ static volatile bool btnFlag = false;
 // Bit-bang style copied from lily_ducky's proven sendAPA102(): clock idles
 // LOW, data is set first, then the clock pulses HIGH->LOW (rising-edge latch).
 static void apaBit(uint8_t b) {
-    digitalWrite(LED_CI_PIN, LOW);
-    digitalWrite(LED_DI_PIN, b & 1);
-    digitalWrite(LED_CI_PIN, HIGH);
-    digitalWrite(LED_CI_PIN, LOW);
+    digitalWrite(s_ledPins.ci, LOW);
+    digitalWrite(s_ledPins.di, b & 1);
+    digitalWrite(s_ledPins.ci, HIGH);
+    digitalWrite(s_ledPins.ci, LOW);
 }
-static void apaByte(uint8_t b) { apaBit(b); }
+static void apaByte(uint8_t b) { for (int i = 7; i >= 0; i--) apaBit((b >> i) & 1); }
+
+// Switch the DI/CI pin mapping at runtime (board revision probing).
+void ledUsePins(uint8_t di, uint8_t ci) {
+    s_ledPins = {di, ci};
+    pinMode(s_ledPins.di, OUTPUT); digitalWrite(s_ledPins.di, LOW);
+    pinMode(s_ledPins.ci, OUTPUT); digitalWrite(s_ledPins.ci, LOW);
+}
 
 void ledSet(const RGB& c) {
     // APA102 global brightness: 5-bit scalar packed as 111xxxxx.
@@ -104,6 +111,11 @@ void screenOn() {
     if (tft) { tft->fillScreen(ST77XX_BLACK); tft->setTextColor(ST77XX_MAGENTA); }
 }
 void screenOff() {
+    // After ledcAttach() the pin is PWM-owned: digitalWrite is ignored.
+    // Must zero/detach the LEDC channel or "off" silently does nothing.
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    if (backlightPWM) { ledcWrite(PIN_NUM_BCKL, 0); ledcDetach(PIN_NUM_BCKL); backlightPWM = false; }
+#endif
     pinMode(PIN_NUM_BCKL, OUTPUT); digitalWrite(PIN_NUM_BCKL, LOW);
 }
 
