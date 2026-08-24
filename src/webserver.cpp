@@ -332,6 +332,28 @@ static void hMkdir() {
     json(SD_MMC.mkdir(path) ? 200 : 500, "{\"ok\":true}");
 }
 
+// ---- hardware test endpoints (also used by Step-2 SCREEN_/LED_ commands) ---
+static void hDevLed() {
+    requireAuth(); if (!isAuthed()) return;
+    // /api/dev/led?r=255&g=0&b=0   or   /api/dev/led?off=1
+    if (server.arg("off") == "1") { hw::ledOff(); return json(200, "{\"ok\":true}"); }
+    RGB c{(uint8_t)server.arg("r").toInt(),
+          (uint8_t)server.arg("g").toInt(),
+          (uint8_t)server.arg("b").toInt()};
+    hw::ledSet(c);
+    json(200, "{\"ok\":true}");
+}
+static void hDevScreen() {
+    requireAuth(); if (!isAuthed()) return;
+    String a = server.arg("action");
+    if      (a == "on")  hw::screenOn();
+    else if (a == "off") hw::screenOff();
+    else if (a == "text") hw::screenText(server.arg("t"));
+    else if (a == "clear")hw::screenClear();
+    else return jsonErr(400, "action=on|off|text|clear");
+    json(200, "{\"ok\":true}");
+}
+
 static void hUpload() {
     requireAuth(); if (!isAuthed()) return;
     String path = server.arg("path");
@@ -449,6 +471,8 @@ bool begin() {
     server.on("/api/file", HTTP_DELETE, hFileDelete);
     server.on("/api/upload", HTTP_POST, [](){ json(200,"{\"ok\":true}"); }, hUpload);
     server.on("/api/mkdir", HTTP_POST, hMkdir);
+    server.on("/api/dev/led", HTTP_GET, hDevLed);       // hardware test
+    server.on("/api/dev/screen", HTTP_GET, hDevScreen); // hardware test
     server.on("/api/settings", HTTP_POST, hSettings);
     server.on("/", HTTP_GET, hIndex);
     server.on("/index.html", HTTP_GET, hIndex);

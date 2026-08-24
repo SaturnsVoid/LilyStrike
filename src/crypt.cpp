@@ -92,6 +92,9 @@ bool decryptFromFile(const char* path, String& out) {
     if (r != sz) return false;
     auto pt = aesDecryptFileData(buf.data(), buf.size());
     if (pt.empty()) return false;
+    // String(const char*) reads until NUL - without terminating we get
+    // random heap bytes appended after the plaintext ("ENTERxV<garbage>").
+    pt.push_back('\0');
     out = String((const char*)pt.data());
     return true;
 }

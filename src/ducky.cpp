@@ -111,7 +111,9 @@ RunResult run(const String& scriptText, const String& name) {
         int nl = scriptText.indexOf('\n', idx);
         String line = (nl < 0) ? scriptText.substring(idx)
                                : scriptText.substring(idx, nl);
-        idx = nl + 1;
+        // CRITICAL: when nl == -1 this was the last line - jump past the end
+        // or idx wraps to 0 and the script loops forever.
+        idx = (nl < 0) ? scriptText.length() + 1 : nl + 1;
         lineNo++;
         line.trim();
         if (line.isEmpty() || line.startsWith("#")) continue;

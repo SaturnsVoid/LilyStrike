@@ -24,14 +24,13 @@ static volatile bool btnFlag = false;
 // (111A AAAA BBBB BBBB GGGG GGGG RRRR RRRR), then >=32 one stop bits.
 // We bit-bang because the LED shares no hardware SPI bus with anything else.
 // ---------------------------------------------------------------------------
+// Bit-bang style copied from lily_ducky's proven sendAPA102(): clock idles
+// LOW, data is set first, then the clock pulses HIGH->LOW (rising-edge latch).
 static void apaBit(uint8_t b) {
-    for (int i = 7; i >= 0; i--) {
-        digitalWrite(LED_CI_PIN, LOW);
-        digitalWrite(LED_DI_PIN, (b >> i) & 1);
-        delayMicroseconds(1);              // setup time; keeps us well in spec
-        digitalWrite(LED_CI_PIN, HIGH);
-        delayMicroseconds(1);
-    }
+    digitalWrite(LED_CI_PIN, LOW);
+    digitalWrite(LED_DI_PIN, b & 1);
+    digitalWrite(LED_CI_PIN, HIGH);
+    digitalWrite(LED_CI_PIN, LOW);
 }
 static void apaByte(uint8_t b) { apaBit(b); }
 
@@ -41,11 +40,7 @@ void ledSet(const RGB& c) {
     for (int i = 0; i < 4; i++) apaByte(0x00);          // start frame (32 zero bits)
     apaByte(0xFF); apaByte(gb);
     apaByte(c.b); apaByte(c.g); apaByte(c.r);           // B,G,R order!
-    for (int i = 0; i < 4; i++) apaBit(0xFF);           // end frame (32 one-bits)
-    // Extra clock pulses with DI low latch brightness correctly (SK9822/APA102
-    // quirk); without them the LED can hold stale/random color at boot.
-    digitalWrite(LED_DI_PIN, LOW);
-    for (int i = 0; i < 4; i++) apaBit(0x00);
+    for (int i = 0; i < 4; i++) apaByte(0xFF);          // end frame
 }
 
 void ledOff() { RGB z = {0,0,0}; ledSet(z); }
@@ -71,7 +66,10 @@ bool initAll() {
     tft = new Adafruit_ST7735(&SPI, PIN_NUM_CS, PIN_NUM_DC, PIN_NUM_RST);
     // Always init + clear GRAM at boot even if screen stays "off", otherwise
     // whatever garbage is in RAM shows when backlight comes on later.
-    tft->initR(INITR_BLACKTAB);          // if colors/offset wrong try INITR_GREENTAB
+    // INITR_MINI160x80_PLUGIN = colstart 26 / rowstart 1 - the offsets this
+    // exact panel needs (confirmed against USBArmyKnife's Panel_ST7735S
+    // config: offset_x=26, offset_y=1). BLACKTAB writes off-screen => static.
+    tft->initR(INITR_MINI160x80_PLUGIN);
     tft->setRotation(3);                 // landscape matching dongle shell
     tft->fillScreen(ST77XX_BLACK);
     if (cfg.screenOnBoot) screenOn(); else screenOff();
