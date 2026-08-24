@@ -56,8 +56,9 @@ static bool backlightPWM = false;   // true once ledc attached
 bool initAll() {
     // Kill backlight FIRST - a floating BCKL pin lights the panel showing
     // un-initialized display RAM ("multi-color static").
+    // IMPORTANT: this panel's backlight is INVERTED - HIGH = off!
     pinMode(PIN_NUM_BCKL, OUTPUT);
-    digitalWrite(PIN_NUM_BCKL, LOW);
+    digitalWrite(PIN_NUM_BCKL, HIGH);
 
     pinMode(LED_DI_PIN, OUTPUT); digitalWrite(LED_DI_PIN, LOW);
     pinMode(LED_CI_PIN, OUTPUT); digitalWrite(LED_CI_PIN, LOW);
@@ -127,7 +128,8 @@ void screenOff() {
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
     if (backlightPWM) { ledcWrite(PIN_NUM_BCKL, 0); ledcDetach(PIN_NUM_BCKL); backlightPWM = false; }
 #endif
-    pinMode(PIN_NUM_BCKL, OUTPUT); digitalWrite(PIN_NUM_BCKL, LOW);
+    // Inverted backlight: HIGH = off (LOW would be full brightness!).
+    pinMode(PIN_NUM_BCKL, OUTPUT); digitalWrite(PIN_NUM_BCKL, HIGH);
     backlightPWM = false;   // pin released from PWM - digitalWrite works again
     s_screenOn = false;
 }
