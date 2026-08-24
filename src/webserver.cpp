@@ -267,8 +267,13 @@ static void hAutostartSet() {
         if (s_autostartCount >= 8) break;
         strlcpy(s_autostart[s_autostartCount++].name, sanitizeName(n).c_str(), 64);
     }
-    saveAutostart();
-    json(200, "{\"ok\":true}");
+    bool ok = true;   // track SD write result so failures aren't silent
+    if (!hw::sdMount()) ok = false;
+    else saveAutostart();
+    logLine("web: autostart set to " + String(s_autostartCount) + " script(s)" +
+            (ok ? "" : " (SD WRITE FAILED)"));
+    json(ok ? 200 : 500,
+        String("{\"ok\":") + (ok?"true":"false") + ",\"count\":" + s_autostartCount + "}");
 }
 
 // ---- file browser ------------------------------------------------------------
@@ -382,7 +387,6 @@ static void hFileDelete() {
 static void hSettings() {
     requireAuth(); if (!isAuthed()) return;
     String body = server.arg("plain"), v;
-
     // Empty fields = "leave unchanged" (UI sends only filled boxes).
     if (extractJsonStr(body, "ssid", v) && v.length())
         strlcpy(cfg.wifiSSID, v.c_str(), sizeof(cfg.wifiSSID));
@@ -393,8 +397,9 @@ static void hSettings() {
 
     configSaveWiFi(); configSaveLogin(); configSaveEncryption();
 
-    // display group
-    extractJsonStr(body, "brightness", v);
+    // display group - brightness was previously parsed but never APPLIED
+    if (extractJsonStr(body, "brightness", v) && v.length())
+        cfg.screenBrightness = constrain(v.toInt(), 0, 255);
     // interface flags come as booleans - hand-rolled detection:
     if (body.indexOf("\"screenOnBoot\":true") >= 0)  cfg.screenOnBoot = true;
     if (body.indexOf("\"screenOnBoot\":false") >= 0) cfg.screenOnBoot = false;

@@ -27,15 +27,26 @@ static const uint16_t APA_COUNT = 1;
 static rgb_color apaBuf[APA_COUNT];
 static const uint8_t APA_BRIGHT = 10;   // 0-31; this LED is blinding at max
 
-// ---------------------------------------------------------------------------
-// APA102 via Pololu library (proven on this board by USBArmyKnife).
 void ledSet(const RGB& c) {
     apaBuf[0] = rgb_color(c.r, c.g, c.b);
     apaStrip.write(apaBuf, APA_COUNT, APA_BRIGHT);
+    apaLatch();
 }
 void ledOff() {
     apaBuf[0] = rgb_color(0, 0, 0);
     apaStrip.write(apaBuf, APA_COUNT, 0);   // brightness 0 = fully dark
+    apaLatch();
+}
+// Extra clock pulses with data LOW after a frame - required for the global
+// brightness register to actually latch on some APA102 batches. Without
+// these the LED ignores dark frames at boot and keeps showing garbage.
+static void apaLatch() {
+    pinMode(LED_DI_PIN, OUTPUT); digitalWrite(LED_DI_PIN, LOW);
+    pinMode(LED_CI_PIN, OUTPUT);
+    for (int i = 0; i < 36; i++) {
+        digitalWrite(LED_CI_PIN, HIGH);
+        digitalWrite(LED_CI_PIN, LOW);
+    }
 }
 
 static bool backlightPWM = false;   // true once ledc attached

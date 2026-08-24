@@ -155,10 +155,14 @@ async function renderAuto(){
   $("#autoList").innerHTML=autoQ.map((n,i)=>`<li>${i+1}. ${esc(n)}
     <button class="small" onclick="rmAuto(${i})">x</button></li>`).join("")||"<li>(none)</li>";
 }
+async function autoSet(names){
+  const r=await jpost("/api/autostart",{names});
+  if(r && r.ok===false) toast("Save failed: "+(r.error||"SD write error"),"err");
+}
 async function addAuto(){ const n=$("#autoPick").value; if(!n)return;
-  autoQ.push(n); await jpost("/api/autostart",{names:autoQ}); renderAuto(); toast("Added to autostart"); }
-async function rmAuto(i){ autoQ.splice(i,1); await jpost("/api/autostart",{names:autoQ}); renderAuto(); }
-async function clearAuto(){ await jpost("/api/autostart",{names:[]}); renderAuto(); toast("Autostart cleared"); }
+  autoQ.push(n); await autoSet(autoQ); await renderAuto(); toast("Added to autostart"); }
+async function rmAuto(i){ autoQ.splice(i,1); await autoSet(autoQ); await renderAuto(); toast("Removed"); }
+async function clearAuto(){ await autoSet([]); await renderAuto(); toast("Autostart cleared"); }
 
 /* ============================ FILES VIEW ================================ */
 let fbCur="/";
@@ -275,6 +279,18 @@ function settingsView(){
     <p class="err">Permanent mode disables the interface until the firmware is re-flashed!</p>
     <button class="danger" onclick="permDisable()">Enable Permanent Disable</button></div>
   <button onclick="saveSettings()">Save Settings</button>`;
+  loadSettingsState();
+}
+// Populate the form with the currently saved values (secrets stay empty).
+async function loadSettingsState(){
+  try{
+    const s=await api("/api/settings");
+    $("#ssid").value=s.ssid||""; $("#user").value=s.user||"";
+    $("#screenOnBoot").checked=!!s.screenOnBoot;
+    $("#ledOnBoot").checked=!!s.ledOnBoot;
+    $("#brightness").value=s.brightness??128;
+    if(s.permOff) toast("Interface is PERMANENTLY disabled (takes effect on reboot)","err");
+  }catch(e){ /* leave defaults */ }
 }
 async function saveSettings(){
   // Only send filled boxes - server treats empty strings as "unchanged".
