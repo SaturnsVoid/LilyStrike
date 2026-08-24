@@ -423,6 +423,22 @@ static void hSettings() {
     json(200, "{\"ok\":true}");
 }
 
+// GET current settings so the Settings form reflects saved state.
+// Secrets are NOT returned (boxes stay empty = unchanged, matching save).
+static void hSettingsGet() {
+    requireAuth(); if (!isAuthed()) return;
+    String s = "{\"ssid\":\"" + String(cfg.wifiSSID) + "\"" +
+        ",\"user\":\"" + String(cfg.webUser) + "\"" +
+        ",\"screenOnBoot\":" + String(cfg.screenOnBoot ? "true" : "false") +
+        ",\"ledOnBoot\":" + String(cfg.ledOnBoot ? "true" : "false") +
+        ",\"brightness\":" + String(cfg.screenBrightness) +
+        ",\"tempOff\":" + String(cfg.ifaceTempOff ? "true" : "false") +
+        ",\"permOff\":" + String(cfg.ifaceDisabledPerm ? "true" : "false") +
+        "}";
+    server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    json(200, s);
+}
+
 // ---- static UI -------------------------------------------------------------------
 // NOTE: files live under /www inside LittleFS (data/www -> image root keeps
 // folder), so browser paths must be mapped to /www/<path>.
@@ -430,6 +446,10 @@ static void serveWWW(const char* browserPath) {
     String fsPath = String("/www") + browserPath;
     File f = LittleFS.open(fsPath, "r");
     if (!f) { server.send(500, "text/plain", "UI missing - run 'pio run -t uploadfs'"); return; }
+    // No-cache: browsers otherwise heuristically cache app.js/style.css and
+    // keep serving a stale UI after uploadfs updates.
+    server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    server.sendHeader("Pragma", "no-cache");
     server.streamFile(f, String(browserPath).endsWith(".css") ? "text/css" :
                           String(browserPath).endsWith(".js") ? "application/javascript" : "text/html");
     f.close();
@@ -488,6 +508,7 @@ bool begin() {
     server.on("/api/dev/led", HTTP_GET, hDevLed);       // hardware test
     server.on("/api/dev/screen", HTTP_GET, hDevScreen); // hardware test
     server.on("/api/settings", HTTP_POST, hSettings);
+    server.on("/api/settings", HTTP_GET, hSettingsGet);   // form loads saved values
     server.on("/", HTTP_GET, hIndex);
     server.on("/index.html", HTTP_GET, hIndex);
     server.onNotFound(hStatic);
