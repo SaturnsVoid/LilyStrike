@@ -10,3 +10,6 @@ bool extractJsonStr(const String& json, const char* key, String& out);
 
 // Extract "key":["a","b"] array-of-strings from a flat JSON object.
 bool extractJsonArr(const String& json, const char* key, std::vector<String>& out);
+
+// Convert CRLF/CR line endings to plain LF (cross-platform text hygiene).
+String normalizeEol(const String& s);

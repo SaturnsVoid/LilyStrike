@@ -28,6 +28,9 @@ RunResult run(const String& scriptText, const String& name);
 // Ask the running script to abort (checked between every line).
 void stop();
 
+// Start USB HID stack once at boot. MUST be called before run().
+void initOnce();
+
 bool isRunning();
 String stateString();               // "STANDBY" / "RUNNING" / "FINISHED"
 

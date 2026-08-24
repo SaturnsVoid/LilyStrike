@@ -61,3 +61,25 @@ td,th{text-align:left;padding:6px 8px;border-bottom:1px solid var(--border)}
 .tok-str{color:#86efac}                        /* STRING payloads */
 .tok-rem{color:#52527a;font-style:italic}      /* REM lines */
 .tok-num{color:#fbbf24}
+
+/* ---- toasts + modals (in-page popups) ---- */
+#toastHost{position:fixed;bottom:16px;right:16px;z-index:200;display:flex;
+  flex-direction:column;gap:8px}
+.toast{background:var(--panel2);border:1px solid var(--accent);border-radius:6px;
+  padding:10px 16px;color:var(--text);opacity:0;transform:translateY(8px);
+  transition:all .3s ease;max-width:320px}
+.toast.show{opacity:1;transform:none}
+.toast.err{border-color:var(--err)}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;
+  display:grid;place-items:center}
+.modal{background:var(--panel);border:1px solid var(--accent);border-radius:8px;
+  padding:20px;width:min(520px,92vw);max-height:85vh;overflow:auto}
+.row-end{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+
+/* ---- editor cursor fix ---- */
+/* textarea and highlight overlay MUST have identical metrics or the caret
+   drifts. overflow:hidden on the pane, textarea owns the scrollbars. */
+#editorPane{overflow:hidden;display:block}
+#hl,#code{font-size:14px;line-height:1.45em;letter-spacing:normal;
+  tab-size:8;border:0;box-sizing:border-box;width:100%;height:100%;
+  margin:0;padding:8px;white-space:pre;word-wrap:normal;overflow-wrap:normal}

@@ -1,13 +1,9 @@
 // ============================================================================
-// app.js - SPA for the device web UI (Tools / Status / Settings)
+// app.js - SPA for the device web UI
 // ----------------------------------------------------------------------------
-// Views:
-//  tools    : BadUSB editor (line numbers + DuckyScript highlighting, run,
-//             save/load from SD, autostart manager) + File Browser
-//             + Command Reference panel.
-//  status   : system stats, script state, debug log, reboot/reset/format.
-//  settings : WiFi creds, login creds, encryption password, display defaults,
-//             interface disable modes (temporary / permanent).
+// Views: tools (BadUSB editor) / files (browser) / status / settings.
+// All popups are in-page (modal system + toasts) - no alert/confirm/prompt.
+// Text is normalised to LF everywhere so Windows/Linux/Mac all behave the same.
 // ============================================================================
 "use strict";
 const $ = s => document.querySelector(s);
@@ -20,6 +16,32 @@ async function api(path, opts = {}) {
 }
 const jpost = (p, body) => api(p, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ===================== TOASTS + MODALS (no native popups) ================= */
+function toast(msg, kind="ok") {
+  const el = document.createElement("div");
+  el.className = "toast " + kind;
+  el.textContent = msg;
+  $("#toastHost").appendChild(el);
+  setTimeout(() => { el.classList.add("show"); }, 10);
+  setTimeout(() => { el.classList.remove("show"); setTimeout(()=>el.remove(), 400); }, 3000);
+}
+// confirmModal(msg) -> Promise<bool>; promptModal(title,value)->Promise<string|null>
+function modal(html) {
+  return new Promise(resolve => {
+    const host = $("#modalHost");
+    host.innerHTML = `<div class="overlay"><div class="modal">${html}</div></div>`;
+    const close = v => { host.innerHTML = ""; resolve(v); };
+    window._closeModal = close;
+  });
+}
+const confirmModal = msg => modal(`<p>${esc(msg)}</p>
+  <div class="row-end"><button class="danger" onclick="_closeModal(true)">Confirm</button>
+  <button onclick="_closeModal(false)">Cancel</button></div>`);
+const promptModal = (title, value="") => modal(`<label>${esc(title)}
+  <input id="mInput" value="${esc(value)}"></label>
+  <div class="row-end"><button onclick="_closeModal($('#mInput').value)">Save</button>
+  <button onclick="_closeModal(null)">Cancel</button></div>`);
 
 /* ============================== TOOLS VIEW ============================== */
 function toolsView() {
@@ -55,24 +77,19 @@ function toolsView() {
       <button class="small" onclick="clearAuto()">Clear</button>
     </div>
   </div>
-
-  <div class="panel"><h2>File Browser</h2>
-    <div style="display:flex;gap:8px;margin-bottom:8px">
-      <span id="fbPath" class="muted">/</span><span style="flex:1"></span>
-      <button class="small" onclick="fbUp()">Up</button>
-      <input type="file" id="upFile" style="display:none" onchange="upload()">
-      <button class="small" onclick="$('#upFile').click()">Upload here</button>
-      <button class="small" onclick="fbNew()">New file</button>
-    </div>
-    <table id="fbTable"></table>
-  </div>
-
   ${refPanel()}`;
+  // Normalise CRLF -> LF and wire up editor events once per render.
+  const code = CODE();
+  code.value = code.value.replace(/\r\n?/g, "\n");
+  code.addEventListener("input", () => { highlight(); syncScroll(); });
+  code.addEventListener("scroll", syncScroll);       // keep overlay + gutter in step
+  highlight(); syncScroll();
   refreshScripts();
-  fbGo("/");
 }
 
 /* -------- editor helpers -------- */
+// NOTE(cursor): #hl and #code share identical font metrics + padding + line-height
+// (see style.css). The textarea scrolls; #hl/#gutter follow via syncScroll.
 const CODE = () => $("#code");
 const COMMANDS = /^(REM|REM_BLOCK_(START|END)|DELAY|DEFAULTDELAY|DEFAULT_DELAY|STRING|STRINGLN|ENTER|SPACE|TAB|ESCAPE|DOWNARROW|UPARROW|LEFTARROW|RIGHTARROW|BACKSPACE|DELETE|HOME|INSERT|PAGEUP|PAGEDOWN|CAPSLOCK|APP|REPEAT|LOG|GUI|WINDOWS|COMMAND|CTRL|CONTROL|ALT|ALTGR|SHIFT|F\d{1,2})\b/i;
 function highlight() {
@@ -87,7 +104,7 @@ function highlight() {
         const rest = ln.slice(m[0].length);
         out += `<span class="tok-cmd">${esc(m[0])}</span>` +
                (/^STRING/i.test(m[0]) ? `<span class="tok-str">${esc(rest)}</span>`
-                                      : esc(rest).replace(/\b(\d+)\b/g,'<span class="tok-num">$1</span>'));
+                                      : esc(rest));
       } else out += esc(ln);
     }
     out += "\n";
@@ -95,11 +112,12 @@ function highlight() {
   $("#hl").innerHTML = out;
   $("#gutter").textContent = g;
 }
-function syncScroll(){ $("#hl").scrollTop=CODE().scrollTop;$("#hl").scrollLeft=CODE().scrollLeft;
-  $("#gutter").scrollTop=CODE().scrollTop; }
-document.addEventListener("input", e => { if(e.target.id==="code"){highlight();syncScroll();} });
-document.addEventListener("scroll", e => {}, true);
-
+function syncScroll(){
+  const hl=$("#hl"), gt=$("#gutter"), c=CODE();
+  if(!hl||!c)return;
+  hl.scrollTop=c.scrollTop; hl.scrollLeft=c.scrollLeft;
+  if(gt) gt.scrollTop=c.scrollTop;
+}
 async function refreshScripts() {
   const list = await api("/api/scripts");
   $("#scriptList").innerHTML = list.map(s=>`<option>${esc(s.name)}</option>`).join("");
@@ -108,22 +126,27 @@ async function refreshScripts() {
 }
 async function loadScript(){
   const n=$("#scriptList").value; if(!n)return;
-  CODE().value = await api("/api/script?name="+encodeURIComponent(n));
-  $("#scriptName").value=n; highlight();
+  const t = await api("/api/script?name="+encodeURIComponent(n));
+  CODE().value = String(t).replace(/\r\n?/g,"\n");   // normalise EOL cross-platform
+  $("#scriptName").value=n; highlight(); syncScroll();
+  toast("Loaded "+n);
 }
-function newScript(){ CODE().value=""; $("#scriptName").value=""; highlight(); }
+function newScript(){ CODE().value=""; $("#scriptName").value=""; highlight(); toast("New script"); }
 async function saveScript(){
-  const n=$("#scriptName").value.trim(); if(!n) return alert("Enter a filename first");
+  const n=$("#scriptName").value.trim(); if(!n) return toast("Enter a filename first","err");
   await jpost("/api/script",{name:n,text:CODE().value}); refreshScripts();
+  toast("Saved "+n);
 }
 async function delScript(){
-  const n=$("#scriptList").value; if(!n||!confirm("Delete "+n+"?"))return;
+  const n=$("#scriptList").value;
+  if(!n || !(await confirmModal("Delete "+n+"?")))return;
   await api("/api/script?name="+encodeURIComponent(n),{method:"DELETE"}); refreshScripts();
+  toast("Deleted "+n);
 }
 async function runScript(){
-  // Run what's in the editor; falls back to selected saved script server-side.
-  const text=CODE().value;
-  await jpost("/api/run", text?{text}: {name:$("#scriptList").value});
+  const text=CODE().value.replace(/\r\n?/g,"\n");
+  await jpost("/api/run", text.trim()?{text}: {name:$("#scriptList").value});
+  toast("Script started","ok");
 }
 /* -------- autostart -------- */
 let autoQ=[];
@@ -133,42 +156,72 @@ async function renderAuto(){
     <button class="small" onclick="rmAuto(${i})">x</button></li>`).join("")||"<li>(none)</li>";
 }
 async function addAuto(){ const n=$("#autoPick").value; if(!n)return;
-  autoQ.push(n); await jpost("/api/autostart",{names:autoQ}); renderAuto(); }
+  autoQ.push(n); await jpost("/api/autostart",{names:autoQ}); renderAuto(); toast("Added to autostart"); }
 async function rmAuto(i){ autoQ.splice(i,1); await jpost("/api/autostart",{names:autoQ}); renderAuto(); }
-async function clearAuto(){ await jpost("/api/autostart",{names:[]}); renderAuto(); }
+async function clearAuto(){ await jpost("/api/autostart",{names:[]}); renderAuto(); toast("Autostart cleared"); }
 
-/* -------- file browser -------- */
+/* ============================ FILES VIEW ================================ */
 let fbCur="/";
+function filesView(){
+  view.innerHTML=`<div class="panel"><h2>File Browser</h2>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <span id="fbPath" class="muted">/</span><span style="flex:1"></span>
+      <button class="small" onclick="fbUp()">Up</button>
+      <input type="file" id="upFile" style="display:none" onchange="upload()">
+      <button class="small" onclick="$('#upFile').click()">Upload here</button>
+      <button class="small" onclick="fbNew()">New file</button>
+      <button class="small" onclick="fbNewDir()">New folder</button>
+    </div>
+    <table id="fbTable"></table></div>`;
+  fbGo("/");
+}
 async function fbGo(p){
   fbCur=p; $("#fbPath").textContent=p;
-  const items=await api("/api/files?path="+encodeURIComponent(p));
-  $("#fbTable").innerHTML="<tr><th>Name</th><th>Type</th><th>Size</th><th></th></tr>"+
-   items.map(f=>{
-     const fp=(p==="/")?"/"+f.name:p+"/"+f.name;
-     let act=f.dir?`<a href="#" onclick="fbGo('${esc(fp)}');return false">Open</a>`:
-       f.name.endsWith(".ds")?`<a href="#" onclick="runSd('${esc(fp)}');return false">Run</a> | `+
-       `<a href="#" onclick="editSd('${esc(fp)}');return false">Edit</a>`:`<a href="#" onclick="editSd('${esc(fp)}');return false">Edit</a>`;
-     return `<tr><td>${esc(f.name)}</td><td>${f.dir?"dir":"file"}</td><td>${f.size}</td>
-       <td>${act} | <a href="#" onclick="delFb('${esc(fp)}');return false" class="err">Del</a></td></tr>`;
-   }).join("");
+  try{
+    const items=await api("/api/files?path="+encodeURIComponent(p));
+    $("#fbTable").innerHTML="<tr><th>Name</th><th>Type</th><th>Size</th><th></th></tr>"+
+     items.map(f=>{
+       const fp=(p==="/")?"/"+f.name:p+"/"+f.name;
+       const act=f.dir?`<a href="#" onclick="fbGo('${esc(fp)}');return false">Open</a>`
+        :`${f.name.endsWith(".ds")?`<a href="#" onclick="runSd('${esc(fp)}');return false">Run</a> | `:""}<a href="#" onclick="editSd('${esc(fp)}');return false">Edit</a>`;
+       return `<tr><td>${esc(f.name)}</td><td>${f.dir?"dir":"file"}</td><td>${f.size}</td>
+         <td>${act} | <a href="#" onclick="delFb('${esc(fp)}');return false" class="err">Del</a></td></tr>`;
+     }).join("");
+  }catch(e){ toast("Cannot open "+p,"err"); }
 }
 function fbUp(){ fbGo(fbCur.replace(/\/[^/]*$/,"")||"/"); }
-async function delFb(p){ if(confirm("Delete "+p+"?")){await api("/api/file?path="+encodeURIComponent(p),{method:"DELETE"});fbGo(fbCur);} }
-async function runSd(p){ await jpost("/api/run",{name:p.split("/").pop()}); }
+async function delFb(p){ if(await confirmModal("Delete "+p+"?")){await api("/api/file?path="+encodeURIComponent(p),{method:"DELETE"});fbGo(fbCur);} }
+async function runSd(p){ await jpost("/api/run",{name:p.split("/").pop()}); toast("Running "+p); }
 function upload(){ const f=$("#upFile").files[0]; if(!f)return;
   fetch("/api/upload?path="+encodeURIComponent(fbCur+"/"+f.name),{method:"POST",body:f})
-   .then(()=>fbGo(fbCur)); }
-function editSd(p){
-  // Simple prompt-based editor for arbitrary files (scripts open big editor)
-  if(p.endsWith(".ds")){ fetch("/api/file?path="+encodeURIComponent(p)).then(r=>r.text()).then(t=>{
-      switchToToolsIf(); CODE().value=t; $("#scriptName").value=p.split("/").pop(); highlight(); });
-    return; }
-  fetch("/api/file?path="+encodeURIComponent(p)).then(r=>r.text()).then(t=>{
-    const nv=prompt("Edit "+p, t.slice(0,4000)); if(nv===null)return;
-    jpost("/api/file",{path:p,content:nv}).then(()=>fbGo(fbCur)); });
+   .then(r=>{ if(r.ok){toast("Uploaded "+f.name); fbGo(fbCur);} else toast("Upload failed ("+r.status+")","err"); })
+   .catch(()=>toast("Upload failed","err"));
 }
-function fbNew(){ const n=prompt("New file name"); if(!n)return;
-  jpost("/api/file",{path:fbCur+"/"+n,content:""}).then(()=>fbGo(fbCur)); }
+// Edit any file in an in-page modal. .ds files come back decrypted from API.
+async function editSd(p){
+  const t = await fetch("/api/file?path="+encodeURIComponent(p)).then(r=>r.ok?r.text():null)
+                 .catch(()=>null);
+  if(t===null) return toast("Could not read "+p,"err");
+  await modal(`<label>Edit ${esc(p)}
+    <textarea id="mEdit" rows="16" style="font-family:'Courier New',monospace">${esc(String(t).replace(/\r\n?/g,"\n"))}</textarea></label>
+    <div class="row-end"><button onclick="_closeModal($('#mEdit').value)">Save</button>
+    <button onclick="_closeModal(null)">Cancel</button></div>`)
+    .then(async content=>{
+      if(content===null)return;
+      await jpost("/api/file",{path:p,content});
+      toast("Saved "+p); fbGo(fbCur);
+    });
+}
+async function fbNew(){
+  const n=await promptModal("New file name"); if(!n)return;
+  await jpost("/api/file",{path:(fbCur==="/"?"":fbCur)+"/"+n,content:""});
+  fbGo(fbCur); toast("Created "+n);
+}
+async function fbNewDir(){
+  const n=await promptModal("New folder name"); if(!n)return;
+  await api("/api/mkdir?path="+encodeURIComponent((fbCur==="/"?"":fbCur)+"/"+n),{method:"POST"});
+  fbGo(fbCur);
+}
 
 /* ============================ STATUS VIEW ============================= */
 let statusTimer=null;
@@ -177,12 +230,16 @@ function statusView(){
   <div class="panel"><h2>Debug Log</h2><button class="small" onclick="refreshLog()">Refresh</button>
     <pre id="logBox" style="max-height:300px;overflow:auto;background:#0d0d16;padding:8px;border-radius:5px"></pre></div>
   <div class="panel"><h2>Danger Zone</h2>
-    <button class="danger" onclick="if(confirm('Reboot device?'))jpost('/api/reboot',{})">Reboot</button>
-    <button class="danger" onclick="if(confirm('Factory reset settings?'))jpost('/api/reset',{})">Reset Firmware Settings</button>
-    <button class="danger" onclick="if(confirm('FORMAT SD CARD? ALL FILES WILL BE LOST!'))jpost('/api/format-sd',{})">Format Micro-SD</button>
+    <button class="danger" onclick="doReboot()">Reboot</button>
+    <button class="danger" onclick="doReset()">Reset Firmware Settings</button>
+    <button class="danger" onclick="doFormat()">Format Micro-SD</button>
   </div>`;
   refreshStatus(); statusTimer=setInterval(refreshStatus,2000); refreshLog();
 }
+async function doReboot(){ if(await confirmModal("Reboot device?")) await jpost("/api/reboot",{}); toast("Rebooting..."); }
+async function doReset(){ if(await confirmModal("Factory reset ALL settings?")) await jpost("/api/reset",{}); toast("Settings reset"); }
+async function doFormat(){ if(await confirmModal("FORMAT SD CARD? ALL FILES WILL BE LOST!"))
+  if(await confirmModal("Are you REALLY sure? This cannot be undone.")) await jpost("/api/format-sd",{}); toast("SD wiped"); }
 async function refreshStatus(){
   const s=await api("/api/status");
   const up=Math.floor(s.uptime), hh=Math.floor(up/3600), mm=Math.floor(up%3600/60), ss=up%60;
@@ -195,14 +252,14 @@ async function refreshStatus(){
    <tr><td>SD Free</td><td>${s.sdTotal?((s.sdFree/1048576).toFixed(1)+" / "+(s.sdTotal/1048576).toFixed(1)+" MB"):"not detected"}</td></tr>
    <tr><td>Connection</td><td>${s.usbHost?"Plugged into computer":"Power only"}</td></tr>
    <tr><td>WiFi AP</td><td>${s.ip} (${s.wifiClients} client(s))</td></tr>
-   <tr><td>Script</td><td><span class="badge ${st[0]}">${st[1]}</span> ${esc(s.scriptName)}
-        @${new Date(s.scriptSince*1000).toLocaleString()}</td></tr>`;
+   <tr><td>Script</td><td><span class="badge ${st[0]}">${st[1]}</span> ${esc(s.scriptName)}</td></tr>`;
 }
-async function refreshLog(){ $("#logBox").textContent=await api("/api/log"); }
+async function refreshLog(){ const b=$("#logBox"); if(b) b.textContent=await api("/api/log"); }
 
 /* =========================== SETTINGS VIEW ============================ */
 function settingsView(){
   view.innerHTML=`<div class="panel"><h2>WiFi Access Point</h2>
+    <p class="muted">Leave a box empty to keep the current value.</p>
     <label>SSID<input id="ssid"></label><label>Password<input id="wifiPass" type="password"></label></div>
   <div class="panel"><h2>Login Credentials</h2>
     <label>Username<input id="user"></label><label>Password<input id="webPass" type="password"></label></div>
@@ -212,7 +269,7 @@ function settingsView(){
   <div class="panel"><h2>Display &amp; LED Defaults</h2>
     <label><input type="checkbox" id="screenOnBoot" style="width:auto"> Screen on at boot</label>
     <label><input type="checkbox" id="ledOnBoot" style="width:auto"> LED on at boot</label>
-    <label>Backlight brightness <input type="number" id="brightness" min="0" max="255" style="max-width:120px"></label></div>
+    <label>Backlight brightness <input type="number" id="brightness" min="0" max="255" value="128" style="max-width:120px"></label></div>
   <div class="panel"><h2>Interface</h2>
     <label><input type="checkbox" id="tempOff" style="width:auto"> Temporarily disable web interface (press BOOT button to re-enable)</label>
     <p class="err">Permanent mode disables the interface until the firmware is re-flashed!</p>
@@ -220,18 +277,23 @@ function settingsView(){
   <button onclick="saveSettings()">Save Settings</button>`;
 }
 async function saveSettings(){
-  const b={ ssid:$("#ssid").value, wifiPass:$("#wifiPass").value,
-    user:$("#user").value, webPass:$("#webPass").value,
-    encPassword:$("#encPassword").value,
-    screenOnBoot:$("#screenOnBoot").checked, ledOnBoot:$("#ledOnBoot").checked,
-    brightness:+$("#brightness").value, tempOff:$("#tempOff").checked };
+  // Only send filled boxes - server treats empty strings as "unchanged".
+  const b={};
+  for(const [id,key] of [["ssid","ssid"],["wifiPass","wifiPass"],["user","user"],
+                          ["webPass","webPass"],["encPassword","encPassword"]]){
+    const v=$(("#"+id)).value; if(v.length) b[key]=v;
+  }
+  b.screenOnBoot=$("#screenOnBoot").checked;
+  b.ledOnBoot=$("#ledOnBoot").checked;
+  b.brightness=+$("#brightness").value;
+  b.tempOff=$("#tempOff").checked;
   await jpost("/api/settings", b);
-  alert("Saved. Some settings apply after reboot.");
+  toast("Settings saved. Some changes apply after reboot.");
 }
 async function permDisable(){
-  if(!confirm("PERMANENTLY disable web interface?\nOnly a firmware re-flash can undo this!"))return;
+  if(!(await confirmModal("PERMANENTLY disable web interface?\nOnly a firmware re-flash can undo this!")))return;
   await jpost("/api/settings",{permOff:true});
-  alert("Interface disabled after next reboot.");
+  toast("Interface will stay off after next reboot.","err");
 }
 
 /* ======================= COMMAND REFERENCE PANEL ====================== */
@@ -250,8 +312,11 @@ function route(){
   clearInterval(statusTimer);
   const h=location.hash||"#tools";
   document.querySelectorAll("nav a").forEach(a=>a.classList.toggle("active",a.getAttribute("href")===h));
-  if(h==="#status")statusView(); else if(h==="#settings")settingsView(); else toolsView();
+  if(h==="#files")filesView();
+  else if(h==="#status")statusView();
+  else if(h==="#settings")settingsView();
+  else toolsView();
 }
 window.onhashchange=route;
 $("#logout").onclick=()=>fetch("/api/login",{method:"POST"}).then(()=>location.href="/login.html");
-route(); setInterval(()=>{ if($("#logBox"))refreshLog(); },5000);
+route();

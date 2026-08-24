@@ -92,8 +92,7 @@ static void typeString(const String& s) { kb.print(s); }
 RunResult run(const String& scriptText, const String& name) {
     RunResult res{true, 0, ""};
     g_stopRequested = false;
-
-    if (!kbStarted) { kb.begin(); USB.begin(); kbStarted = true; delay(500); }
+    // NOTE: HID stack must already be up (ducky::initOnce from setup()).
 
     g_running = true;
     s_state = "RUNNING";
@@ -173,6 +172,14 @@ RunResult run(const String& scriptText, const String& name) {
 }
 
 void stop() { g_stopRequested = true; }
+
+// Call ONCE from setup(): starts the TinyUSB stack with the HID keyboard.
+// Doing this inside run() crashed the device because the core (with CDC on
+// boot disabled) expects a single USB.begin() at startup.
+void initOnce() {
+    if (!kbStarted) { kb.begin(); USB.begin(); kbStarted = true; }
+}
+
 bool isRunning() { return g_running; }
 String stateString() { return s_state; }
 

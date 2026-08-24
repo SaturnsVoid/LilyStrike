@@ -178,6 +178,7 @@ static void hScriptSave() {
     if (!extractJsonStr(body, "name", name) || !extractJsonStr(body, "text", text))
         return jsonErr(400, "bad request");
     name = sanitizeName(name);
+    text = normalizeEol(text);   // cross-platform line-ending hygiene
     bool ok = encryptToFile(("/scripts/" + name).c_str(), text);
     logLine("web: saved script " + name);
     json(ok ? 200 : 500, String("{\"ok\":") + (ok?"true":"false") + "}");
@@ -292,6 +293,14 @@ static void hFilesList() {
 static void hFileGet() {
     requireAuth(); if (!isAuthed()) return;
     String path = server.arg("path"); if (!path.length()) return jsonErr(400, "?path=");
+    // .ds files are stored encrypted on SD - decrypt transparently so the
+    // browser shows readable text. Other files pass through raw.
+    if (path.endsWith(".ds")) {
+        String txt;
+        if (!decryptFromFile(path.c_str(), txt))
+            return jsonErr(500, "decrypt failed (wrong encryption password?)");
+        return server.send(200, "text/plain", txt);
+    }
     File f = SD_MMC.open(path, FILE_READ);
     if (!f) return jsonErr(404, "not found");
     server.streamFile(f, "application/octet-stream");
@@ -303,11 +312,24 @@ static void hFileSave() {
     String body = server.arg("plain"), path, content;
     if (!extractJsonStr(body, "path", path) || !extractJsonStr(body, "content", content))
         return jsonErr(400, "bad request");
-    File f = SD_MMC.open(path, FILE_WRITE);
-    if (!f) return jsonErr(500, "cannot open");
-    size_t w = f.print(content);
-    f.close();
-    json(w == content.length() ? 200 : 500, String("{\"ok\":") + (w==content.length()) + "}");
+    bool ok;
+    if (path.endsWith(".ds")) {
+        ok = encryptToFile(path.c_str(), content);   // keep scripts at rest
+    } else {
+        File f = SD_MMC.open(path, FILE_WRITE);
+        if (!f) return jsonErr(500, "cannot open");
+        size_t w = f.print(content);
+        f.close();
+        ok = (w == content.length());
+    }
+    logLine("web: saved " + path);
+    json(ok ? 200 : 500, String("{\"ok\":") + (ok ? "true":"false") + "}");
+}
+
+static void hMkdir() {
+    requireAuth(); if (!isAuthed()) return;
+    String path = server.arg("path"); if (!path.length()) return jsonErr(400, "?path=");
+    json(SD_MMC.mkdir(path) ? 200 : 500, "{\"ok\":true}");
 }
 
 static void hUpload() {
@@ -322,10 +344,9 @@ static void hUpload() {
     } else if (up.status == UPLOAD_FILE_END && tmp) {
         tmp.close();
         logLine("web: uploaded " + path);
-        json(200, "{\"ok\":true}");
-    } else if (up.status == UPLOAD_FILE_END) {
-        json(500, "{\"ok\":false}");
     }
+    // IMPORTANT: never send a response from inside the upload handler -
+    // WebServer calls our completion lambda afterwards; sending twice panics.
 }
 
 static void hFileDelete() {
@@ -340,11 +361,13 @@ static void hSettings() {
     requireAuth(); if (!isAuthed()) return;
     String body = server.arg("plain"), v;
 
-    if (extractJsonStr(body, "ssid", v)) { strlcpy(cfg.wifiSSID, v.c_str(), sizeof(cfg.wifiSSID)); }
-    if (extractJsonStr(body, "wifiPass", v)) strlcpy(cfg.wifiPass, v.c_str(), sizeof(cfg.wifiPass));
-    if (extractJsonStr(body, "user", v)) strlcpy(cfg.webUser, v.c_str(), sizeof(cfg.webUser));
-    if (extractJsonStr(body, "webPass", v)) strlcpy(cfg.webPass, v.c_str(), sizeof(cfg.webPass));
-    if (extractJsonStr(body, "encPassword", v)) strlcpy(cfg.encPassword, v.c_str(), sizeof(cfg.encPassword));
+    // Empty fields = "leave unchanged" (UI sends only filled boxes).
+    if (extractJsonStr(body, "ssid", v) && v.length())
+        strlcpy(cfg.wifiSSID, v.c_str(), sizeof(cfg.wifiSSID));
+    if (extractJsonStr(body, "wifiPass", v) && v.length()) strlcpy(cfg.wifiPass, v.c_str(), sizeof(cfg.wifiPass));
+    if (extractJsonStr(body, "user", v) && v.length()) strlcpy(cfg.webUser, v.c_str(), sizeof(cfg.webUser));
+    if (extractJsonStr(body, "webPass", v) && v.length()) strlcpy(cfg.webPass, v.c_str(), sizeof(cfg.webPass));
+    if (extractJsonStr(body, "encPassword", v) && v.length()) strlcpy(cfg.encPassword, v.c_str(), sizeof(cfg.encPassword));
 
     configSaveWiFi(); configSaveLogin(); configSaveEncryption();
 
@@ -425,6 +448,7 @@ bool begin() {
     server.on("/api/file", HTTP_POST, hFileSave);
     server.on("/api/file", HTTP_DELETE, hFileDelete);
     server.on("/api/upload", HTTP_POST, [](){ json(200,"{\"ok\":true}"); }, hUpload);
+    server.on("/api/mkdir", HTTP_POST, hMkdir);
     server.on("/api/settings", HTTP_POST, hSettings);
     server.on("/", HTTP_GET, hIndex);
     server.on("/index.html", HTTP_GET, hIndex);
