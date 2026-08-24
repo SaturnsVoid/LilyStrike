@@ -387,6 +387,14 @@ static void hStatic() {
 
 // ---------------------------------------------------------------------------
 bool begin() {
+    // Mount the internal flash filesystem that holds /www (web UI).
+    if (!LittleFS.begin(true)) {           // true = format-on-fail (first boot)
+        logLine("web: LittleFS mount FAILED");
+        return false;
+    }
+    if (!LittleFS.exists("/www/index.html"))
+        logLine("web: warning - /www/index.html absent, did you run 'pio run -t uploadfs'?");
+
     if (cfg.ifaceDisabledPerm) {           // permanent kill switch
         logLine("iface disabled permanently (settings)");
         return false;
