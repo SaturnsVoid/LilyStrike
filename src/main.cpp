@@ -20,6 +20,7 @@
 #include "webserver.h"
 #include "crypt.h"
 #include <USB.h>
+#include "detect_os.h"
 #include "tusb.h"   // tud_connected(): true once a host configures the device
 #include <SD_MMC.h>
 
@@ -27,10 +28,17 @@ static bool s_lastUsb = false;
 static TaskHandle_t s_chainTask = nullptr;
 
 // Runs every autostart script in order inside one dedicated task so delays
-// inside scripts never block the web UI.
-struct ChainCtx { std::vector<String> names; };
-static void chainTask(void* pv) {
+// inside scripts never block the web UI. If autoDetectOS is enabled the
+// detection runs FIRST here so autostart scripts can rely on its result.
+struct ChainCtx { std::vector<String> names; bool detect; };
+static void plugInTask(void* pv) {
     auto* ctx = (ChainCtx*)pv;
+    if (ctx->detect && !ducky::isRunning()) {
+        logLine("plug-in: auto-running DETECT_OS");
+        HostOS h = detectos::detect();
+        g_state.detectedOS = detectos::nameOf(h);
+        logLine("plug-in: detected " + g_state.detectedOS);
+    }
     logLine("autostart: running " + String(ctx->names.size()) + " script(s)");
     for (auto& n : ctx->names) {
         String text;
@@ -95,9 +103,13 @@ void loop() {
     // ---- USB host detection / autostart chain -------------------------------
     bool nowUsb = tud_connected();
     g_state.usbHostPresent = nowUsb;
+    // Unplug: clear the cached OS result so stale detections never persist
+    // across hosts (a new computer may be a different OS).
+    if (!nowUsb && s_lastUsb) g_state.detectedOS = "Unknown";
+
     if (nowUsb && !s_lastUsb && s_chainTask == nullptr && !ducky::isRunning()) {
-        // host just plugged in -> run autostart queue if any.
-        // /autostart.enc holds one script name per line, same envelope as web API.
+        // Host just plugged in: auto-detect OS if enabled, then run the
+        // /autostart.enc queue (one script name per line, PCE1 envelope).
         String t;
         if (decryptFromFile("/autostart.enc", t) && t.length()) {
             auto* ctx = new ChainCtx();
@@ -110,9 +122,14 @@ void loop() {
                 if (nl < 0) break;
                 start = nl + 1;
             }
-            if (ctx->names.size())
-                xTaskCreatePinnedToCore(chainTask, "chain", 8192, ctx, 1, &s_chainTask, 0);
+            ctx->detect = cfg.autoDetectOS;
+            if (ctx->names.size() || ctx->detect)
+                xTaskCreatePinnedToCore(plugInTask, "plugin", 8192, ctx, 1, &s_chainTask, 0);
             else delete ctx;
+        } else if (cfg.autoDetectOS) {
+            // No autostart scripts but detection enabled -> still detect.
+            auto* ctx = new ChainCtx{{}, true};
+            xTaskCreatePinnedToCore(plugInTask, "plugin", 8192, ctx, 1, &s_chainTask, 0);
         }
     }
     s_lastUsb = nowUsb;

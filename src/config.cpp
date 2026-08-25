@@ -23,6 +23,7 @@ static void applyDefaults() {
     cfg.screenOnBoot = false;            // stealth default: all off on boot
     cfg.ledOnBoot = false;
     cfg.screenBrightness = 128;
+    cfg.autoDetectOS = false;
     cfg.ifaceDisabledPerm = false;
     cfg.ifaceTempOff = false;
 }
@@ -38,6 +39,7 @@ void configLoad() {
     cfg.screenOnBoot      = prefs.getBool("scrOn", cfg.screenOnBoot);
     cfg.ledOnBoot         = prefs.getBool("ledOn", cfg.ledOnBoot);
     cfg.screenBrightness  = prefs.getUChar("scrBr", cfg.screenBrightness);
+    cfg.autoDetectOS      = prefs.getBool("autoOS", cfg.autoDetectOS);
     cfg.ifaceDisabledPerm = prefs.getBool("ifacePerm", cfg.ifaceDisabledPerm);
     cfg.ifaceTempOff      = prefs.getBool("ifaceTemp", cfg.ifaceTempOff);
     prefs.end();
@@ -52,6 +54,7 @@ void configSaveWiFi()   { withPrefs([](Preferences& p){ p.putString("ssid", cfg.
 void configSaveLogin()  { withPrefs([](Preferences& p){ p.putString("wuser", cfg.webUser); p.putString("wpass2", cfg.webPass); }); }
 void configSaveEncryption(){ withPrefs([](Preferences& p){ p.putString("encp", cfg.encPassword); }); }
 void configSaveDisplay(){ withPrefs([](Preferences& p){ p.putBool("scrOn", cfg.screenOnBoot); p.putBool("ledOn", cfg.ledOnBoot); p.putUChar("scrBr", cfg.screenBrightness); }); }
+void configSaveAutoOS() { withPrefs([](Preferences& p){ p.putBool("autoOS", cfg.autoDetectOS); }); }
 void configSaveInterfaceFlags() { withPrefs([](Preferences& p){ p.putBool("ifacePerm", cfg.ifaceDisabledPerm); p.putBool("ifaceTemp", cfg.ifaceTempOff); }); }
 
 void configFactoryReset() {

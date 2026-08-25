@@ -441,6 +441,8 @@ static void hSettings() {
     if (body.indexOf("\"screenOnBoot\":false") >= 0) cfg.screenOnBoot = false;
     if (body.indexOf("\"ledOnBoot\":true") >= 0)     cfg.ledOnBoot = true;
     if (body.indexOf("\"ledOnBoot\":false") >= 0)    cfg.ledOnBoot = false;
+    if (body.indexOf("\"autoDetectOS\":true") >= 0)  cfg.autoDetectOS = true;
+    if (body.indexOf("\"autoDetectOS\":false") >= 0) cfg.autoDetectOS = false;
     if (body.indexOf("\"tempOff\":true") >= 0)       cfg.ifaceTempOff = true;      // takes effect after reboot
     if (body.indexOf("\"tempOff\":false") >= 0)      cfg.ifaceTempOff = false;
     if (body.indexOf("\"permOff\":true") >= 0)       cfg.ifaceDisabledPerm = true; // WARNING: irreversible without reflash
@@ -460,6 +462,7 @@ static void hSettingsGet() {
         ",\"screenOnBoot\":" + String(cfg.screenOnBoot ? "true" : "false") +
         ",\"ledOnBoot\":" + String(cfg.ledOnBoot ? "true" : "false") +
         ",\"brightness\":" + String(cfg.screenBrightness) +
+        ",\"autoDetectOS\":" + String(cfg.autoDetectOS ? "true" : "false") +
         ",\"tempOff\":" + String(cfg.ifaceTempOff ? "true" : "false") +
         ",\"permOff\":" + String(cfg.ifaceDisabledPerm ? "true" : "false") +
         "}";

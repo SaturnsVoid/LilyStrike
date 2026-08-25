@@ -21,6 +21,8 @@ struct DeviceConfig {
     bool     screenOnBoot;
     bool     ledOnBoot;
     uint8_t  screenBrightness;   // 0..255 PWM backlight
+    // Auto-run OS detection when plugged into a computer (Step 2)
+    bool     autoDetectOS;       // result cached until device unplugged
     // Interface availability
     bool     ifaceDisabledPerm;  // permanent: no UI until reflash
     bool     ifaceTempOff;       // temporary: BOOT button re-enables
@@ -38,6 +40,7 @@ void configSaveLogin();
 void configSaveEncryption();
 void configSaveDisplay();
 void configSaveInterfaceFlags();
+void configSaveAutoOS();
 
 // Wipe everything back to defaults (Settings page "Reset Firmware" light path).
 void configFactoryReset();

@@ -267,7 +267,8 @@ function settingsView(){
   <div class="panel"><h2>Display &amp; LED Defaults</h2>
     <label><input type="checkbox" id="screenOnBoot" style="width:auto"> Screen on at boot</label>
     <label><input type="checkbox" id="ledOnBoot" style="width:auto"> LED on at boot</label>
-    <label>Backlight brightness <input type="number" id="brightness" min="0" max="255" value="128" style="max-width:120px"></label></div>
+    <label>Backlight brightness <input type="number" id="brightness" min="0" max="255" value="128" style="max-width:120px"></label>
+    <label><input type="checkbox" id="autoDetectOS" style="width:auto"> Auto-detect OS when plugged into a computer (cached until unplug)</label></div>
   <div class="panel"><h2>Interface</h2>
     <label><input type="checkbox" id="tempOff" style="width:auto"> Temporarily disable web interface (press BOOT button to re-enable)</label>
     <p class="err">Permanent mode disables the interface until the firmware is re-flashed!</p>
@@ -283,6 +284,7 @@ async function loadSettingsState(){
     $("#screenOnBoot").checked=!!s.screenOnBoot;
     $("#ledOnBoot").checked=!!s.ledOnBoot;
     $("#brightness").value=s.brightness??128;
+    $("#autoDetectOS").checked=!!s.autoDetectOS;
     if(s.permOff) toast("Interface is PERMANENTLY disabled (takes effect on reboot)","err");
   }catch(e){ /* leave defaults */ }
 }
@@ -296,6 +298,7 @@ async function saveSettings(){
   b.screenOnBoot=$("#screenOnBoot").checked;
   b.ledOnBoot=$("#ledOnBoot").checked;
   b.brightness=+$("#brightness").value;
+  b.autoDetectOS=$("#autoDetectOS").checked;
   b.tempOff=$("#tempOff").checked;
   await jpost("/api/settings", b);
   toast("Settings saved. Some changes apply after reboot.");
