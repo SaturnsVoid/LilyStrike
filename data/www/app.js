@@ -501,12 +501,110 @@ function loadSample(title){
   }, 50);
 }
 
+/* ============================ CONTROL VIEW ============================= */
+// On-screen keyboard (sticky modifiers) + mouse pad. Deltas stream at most
+// every 60ms; buttons and scroll are click-based.
+let ctrlTimer=null, heldMods=new Set();
+const KEY_ROWS=[["`","1","2","3","4","5","6","7","8","9","0","-","=","BACKSPACE"],
+ ["TAB","q","w","e","r","t","y","u","i","o","p","[","]","\\"],
+ ["CAPSLOCK","a","s","d","f","g","h","j","k","l",";","'","ENTER"],
+ ["SHIFT","z","x","c","v","b","n","m",",",".","/","UP"],
+ ["CTRL","GUI","ALT","SPACE","ESC","LEFT","DOWN","RIGHT"]];
+const MOD_NAMES=["CTRL","GUI","ALT","SHIFT","ALTGR"];
+
+function controlView(){
+  clearInterval(ctrlTimer);
+  let kbHtml="";
+  for(const row of KEY_ROWS){
+    kbHtml+='<div class="kbrow">';
+    for(const k of row){
+      const wide=(k.length>1)?' style="min-width:'+(k==="SPACE"?120:52)+'px"':"";
+      kbHtml+=`<button class="key small" data-key="${esc(k)}"${wide}>${k==="SPACE"?"":k}</button>`;
+    }
+    kbHtml+='</div>';
+  }
+  view.innerHTML=`<div class="panel"><h2>HID Control</h2>
+   <div style="display:flex;gap:16px;flex-wrap:wrap">
+    <div><h3>Keyboard</h3><p class="muted">Modifier buttons are sticky - click to hold, click again to release.</p>
+     <div id="mods">${MOD_NAMES.map(m=>`<button class="key small mod" data-mod="${m}">${m}</button>`).join(" ")}</div>
+     <div id="kbd" class="mt8">${kbHtml}</div></div>
+    <div><h3>Mouse</h3>
+     <div id="mousepad">move mouse here</div>
+     <div style="display:flex;gap:8px;margin-top:8px;justify-content:center">
+      <button class="small" data-btn="left">&#128073;</button>
+      <button class="small" data-btn="middle">&bull;</button>
+      <button class="small" data-btn="right">&#128072;</button>
+     </div>
+     <div style="text-align:center;margin-top:6px">
+      <button class="small" onclick="mScroll(1)">&#9650;</button>
+      scroll
+      <button class="small" onclick="mScroll(-1)">&#9660;</button>
+     </div></div>
+    <div><h3>Host Lock Keys</h3><div id="lockKeys" class="muted">(no reports yet)</div>
+     <p class="muted mt8" style="max-width:220px;font-size:13px">Updates when the host sends LED reports (toggle caps lock on the host once to see it live).</p></div>
+   </div></div>`;
+
+  // wire keys
+  document.querySelectorAll("#kbd .key").forEach(b=>{
+    b.onclick=()=>api("/api/hid/key",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({key:b.dataset.key,type:"tap"})});
+  });
+  document.querySelectorAll("#mods .mod").forEach(b=>{
+    b.onclick=()=>{ toggleMod(b.dataset.mod); b.classList.toggle("held"); };
+  });
+  // mouse pad: pointer deltas
+  const pad=$("#mousepad"); let last=null;
+  pad.addEventListener("pointermove",e=>{
+    e.preventDefault();
+    if(last){ mMove(e.clientX-last.x, e.clientY-last.y); }
+    last={x:e.clientX,y:e.clientY};
+  });
+  pad.addEventListener("pointerleave",()=>last=null);
+  // mouse buttons: press/release on down/up
+  document.querySelectorAll("[data-btn]").forEach(b=>{
+    const btn=b.dataset.btn;
+    b.addEventListener("pointerdown",()=>mButton(btn,true));
+    b.addEventListener("pointerup",()=>mButton(btn,false));
+  });
+  refreshLocks(); ctrlTimer=setInterval(refreshLocks,2000);
+}
+function toggleMod(m){
+  heldMods.has(m)?heldMods.delete(m):heldMods.add(m);
+  api("/api/hid/mods",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({mods:[...heldMods]})});
+}
+let mQueue={dx:0,dy:0}, mT=null;
+function mMove(dx,dy){
+  mQueue.dx+=dx; mQueue.dy+=dy;
+  if(!mT) mT=setTimeout(()=>{ mT=null;
+    if(mQueue.dx||mQueue.dy)
+      api("/api/hid/mouse",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({dx:mQueue.dx,dy:mQueue.dy})});
+    mQueue={dx:0,dy:0};
+  },60);
+}
+function mButton(b,down){
+  api("/api/hid/mouse",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({button:b,down})});
+}
+function mScroll(n){
+  api("/api/hid/mouse",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({scroll:n})});
+}
+async function refreshLocks(){
+  const el=$("#lockKeys"); if(!el)return;
+  try{ const s=await api("/api/status");
+    el.textContent=s.lockKeys?s.lockKeys+" active":"(none reported)";
+  }catch(e){}
+}
+
 /* ============================== ROUTER ================================ */
 function route(){
   clearInterval(statusTimer);
   const h=location.hash||"#tools";
   document.querySelectorAll("nav a").forEach(a=>a.classList.toggle("active",a.getAttribute("href")===h));
   if(h==="#files")filesView();
+  else if(h==="#control")controlView();
   else if(h==="#reference")refView();
   else if(h==="#status")statusView();
   else if(h==="#settings")settingsView();

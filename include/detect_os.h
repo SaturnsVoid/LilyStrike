@@ -26,6 +26,8 @@ HostOS detect();
 
 // Cached result of the last detection (UNKNOWN if never run).
 HostOS lastResult();
+void initHook();                // register LED-event callback (call at boot)
+String lockState();             // "CAPS+NUM", "SCROLL", "" ...
 String nameOf(HostOS os);       // "Windows", "Linux", ...
 bool matches(HostOS a, const String& lowerName);   // "windows" etc.
 

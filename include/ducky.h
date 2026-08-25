@@ -31,6 +31,15 @@ void stop();
 // Start USB HID stack once at boot. MUST be called before run().
 void initOnce();
 
+// ---- HID control (Control Page / future MCP mode) ----
+void hidKey(const String& keyName, bool down);       // named key press/release
+std::vector<String> MODIFIER_NAMES();                // ["GUI","CTRL","ALT","SHIFT","ALTGR"]
+bool isModifierName(const String& n);
+void hidModifier(const String& name, bool down);
+void hidMouseMove(int dx, int dy);
+void hidMouseButton(const String& b, bool down);     // "left","right","middle"
+void hidMouseScroll(int clicks);
+
 bool isRunning();
 String stateString();               // "STANDBY" / "RUNNING" / "FINISHED"
 

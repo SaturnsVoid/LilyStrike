@@ -59,6 +59,7 @@ void setup() {
 
     // USB HID up first so scripts can run immediately after plug-in.
     ducky::initOnce();
+    detectos::initHook();
 
     if (!hw::initAll()) {
         // SD missing is non-fatal but note it on screen briefly

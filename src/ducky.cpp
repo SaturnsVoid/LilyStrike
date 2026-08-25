@@ -558,4 +558,33 @@ void initOnce() {
 bool isRunning() { return g_running; }
 String stateString() { return s_state; }
 
+// ---- HID control implementations ----
+static uint8_t heldModifiers = 0;
+
+std::vector<String> MODIFIER_NAMES() {
+    return {"GUI","WINDOWS","COMMAND","CTRL","CONTROL","ALT","ALTGR","SHIFT"};
+}
+bool isModifierName(const String& n) {
+    for (auto& m : MODIFIER_NAMES()) if (n.equalsIgnoreCase(m)) return true;
+    return false;
+}
+void hidKey(const String& keyName, bool down) {
+    uint8_t k;
+    if (!resolveKey(keyName, k)) return;
+    if (isModifierName(keyName)) return;   // use hidModifier for stickiness
+    if (down) kb.press(k); else kb.release(k);
+}
+void hidModifier(const String& name, bool down) {
+    uint8_t k;
+    if (lookup(MODS, sizeof(MODS)/sizeof(MODS[0]), name, k))
+        down ? kb.press(k) : kb.release(k);
+}
+void hidMouseMove(int dx, int dy)      { mouse.move(dx, dy); }
+void hidMouseButton(const String& b, bool down) {
+    if      (b=="left")   down ? mouse.press(MOUSE_LEFT)   : mouse.release(MOUSE_LEFT);
+    else if (b=="right")  down ? mouse.press(MOUSE_RIGHT)  : mouse.release(MOUSE_RIGHT);
+    else if (b=="middle") down ? mouse.press(MOUSE_MIDDLE) : mouse.release(MOUSE_MIDDLE);
+}
+void hidMouseScroll(int clicks)        { mouse.move(0,0,clicks); }
+
 } // namespace ducky

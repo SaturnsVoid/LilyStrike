@@ -55,6 +55,22 @@ static void resetLocks() {
     if (scrollSt) { unsigned long t; toggleKey(KEY_SCROLL_LOCK, &t); delay(800); }
 }
 
+// Register the LED-report callback at boot so lock-key state stays current
+// for the Control page (not just during detection runs).
+void initHook() {
+    static bool done = false;
+    if (!done) { ducky::kb.onEvent(onUsbEvent); done = true; }
+}
+
+// Live host-side lock-key state as a compact string.
+String lockState() {
+    String s;
+    if (capsSt)   s += "+CAPS";
+    if (numSt && numChecked)   s += "+NUM";
+    if (scrollSt) s += "+SCROLL";
+    return s.length() ? s.substring(1) : "";
+}
+
 HostOS detect() {
     static bool evtHooked = false;
     if (!evtHooked) { ducky::kb.onEvent(onUsbEvent); evtHooked = true; }

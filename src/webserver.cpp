@@ -35,6 +35,7 @@
 #include <SD_MMC.h>
 #include "util.h"
 #include "spoof.h"
+#include "detect_os.h"
 #include <mbedtls/base64.h>
 #include <esp_system.h>
 #include <esp32-hal.h>
@@ -107,6 +108,7 @@ static void hStatus() {
          ",\"scriptState\":\"" + ducky::stateString() + "\"" +
          ",\"scriptName\":\"" + g_state.lastScriptName + "\"" +
          ",\"detectedOS\":\"" + g_state.detectedOS + "\"" +
+         ",\"lockKeys\":\"" + detectos::lockState() + "\"" +
          ",\"scriptSince\":" + String((uint32_t)g_state.scriptStateSince) +
          "}";
     json(200, s);
@@ -363,6 +365,53 @@ static void hMkdir() {
     json(SD_MMC.mkdir(path) ? 200 : 500, "{\"ok\":true}");
 }
 
+// ---- HID control (Control Page) ---------------------------------------------
+static void hHidKey() {
+    requireAuth(); if (!isAuthed()) return;
+    String body = server.arg("plain"), key, typ;
+    if (!extractJsonStr(body, "key", key)) return jsonErr(400, "bad request");
+    extractJsonStr(body, "type", typ);
+    bool down = !typ.equalsIgnoreCase("up");
+    ducky::hidKey(key, down);
+    json(200, "{\"ok\":true}");
+}
+static void hHidMods() {
+    requireAuth(); if (!isAuthed()) return;
+    std::vector<String> mods;
+    if (!extractJsonArr(server.arg("plain"), "mods", mods)) return jsonErr(400, "bad request");
+    // Toggle model: UI sends the FULL desired set; we diff against last set.
+    static std::vector<String> s_held;
+    for (auto& m : s_held) {
+        bool stillWanted = false;
+        for (auto& n : mods) if (n.equalsIgnoreCase(m)) { stillWanted = true; break; }
+        if (!stillWanted) ducky::hidModifier(m, false);   // released
+    }
+    for (auto& m : mods) {
+        bool already = false;
+        for (auto& h : s_held) if (h.equalsIgnoreCase(m)) { already = true; break; }
+        if (!already && ducky::isModifierName(m)) { ducky::hidModifier(m, true); }
+    }
+    s_held = mods;
+    json(200, "{\"ok\":true}");
+}
+static void hHidMouse() {
+    requireAuth(); if (!isAuthed()) return;
+    String body = server.arg("plain");
+    if (body.indexOf("\"button\"") >= 0) {
+        String b; extractJsonStr(body, "button", b);
+        bool down = body.indexOf("\"down\":true") >= 0;
+        ducky::hidMouseButton(b, down);
+        return json(200, "{\"ok\":true}");
+    }
+    if (body.indexOf("\"scroll\"") >= 0) {
+        ducky::hidMouseScroll((int)extractJsonNum(body, "scroll", 0));
+        return json(200, "{\"ok\":true}");
+    }
+    int dx = (int)extractJsonNum(body, "dx", 0), dy = (int)extractJsonNum(body, "dy", 0);
+    ducky::hidMouseMove(dx, dy);
+    json(200, "{\"ok\":true}");
+}
+
 // ---- USB identity spoofing -------------------------------------------------
 static void hSpoofGet() {
     requireAuth(); if (!isAuthed()) return;
@@ -584,6 +633,9 @@ bool begin() {
     server.on("/api/file", HTTP_GET, hFileGet);
     server.on("/api/file", HTTP_POST, hFileSave);
     server.on("/api/file", HTTP_DELETE, hFileDelete);
+    server.on("/api/hid/key", HTTP_POST, hHidKey);
+    server.on("/api/hid/mods", HTTP_POST, hHidMods);
+    server.on("/api/hid/mouse", HTTP_POST, hHidMouse);
     server.on("/api/spoof", HTTP_GET, hSpoofGet);
     server.on("/api/spoof", HTTP_POST, hSpoofSet);
     server.on("/api/dev/led", HTTP_GET, hDevLed);       // hardware test
