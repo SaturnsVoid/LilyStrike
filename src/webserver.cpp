@@ -446,7 +446,7 @@ static void hSettings() {
     if (body.indexOf("\"tempOff\":true") >= 0)       cfg.ifaceTempOff = true;      // takes effect after reboot
     if (body.indexOf("\"tempOff\":false") >= 0)      cfg.ifaceTempOff = false;
     if (body.indexOf("\"permOff\":true") >= 0)       cfg.ifaceDisabledPerm = true; // WARNING: irreversible without reflash
-    configSaveDisplay(); configSaveInterfaceFlags();
+    configSaveDisplay(); configSaveInterfaceFlags(); configSaveAutoOS();
     hw::applyBrightness();   // brightness slider takes effect immediately
 
     logLine("web: settings updated");
