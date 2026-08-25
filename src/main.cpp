@@ -23,6 +23,7 @@
 #include "detect_os.h"
 #include "msc.h"
 #include "spoof.h"
+#include "evilap.h"
 #include "tusb.h"   // tud_connected(): true once a host configures the device
 #include <SD_MMC.h>
 
@@ -94,6 +95,13 @@ void setup() {
 void loop() {
     if (g_state.thumbMode) { delay(100); return; }   // stealth: MSC only
     web::handle();
+    evilap::handle();
+    // EvilAP kill switch: hold BOOT ~1.5s while the portal is running.
+    static uint32_t evilBtnAt = 0;
+    if (evilap::running() && digitalRead(PIN_BTN_BOOT) == LOW) {
+        if (!evilBtnAt) evilBtnAt = millis();
+        else if (millis() - evilBtnAt > 1500) { evilap::stop(); evilBtnAt = 0; }
+    } else evilBtnAt = 0;
     delay(2);
 
     // ---- BOOT button -------------------------------------------------------

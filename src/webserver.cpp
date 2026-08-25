@@ -38,6 +38,7 @@
 #include "detect_os.h"
 #include "sys.h"
 #include "msc.h"
+#include "evilap.h"
 #include <mbedtls/base64.h>
 #include <esp_system.h>
 #include <esp32-hal.h>
@@ -367,6 +368,45 @@ static void hMkdir() {
     json(SD_MMC.mkdir(path) ? 200 : 500, "{\"ok\":true}");
 }
 
+// ---- EvilAP / captive portal --------------------------------------------------
+static void hEvilStart() {
+    requireAuth(); if (!isAuthed()) return;
+    String body = server.arg("plain"), ssid, tpl;
+    if (!extractJsonStr(body, "ssid", ssid)) return jsonErr(400, "ssid required");
+    extractJsonStr(body, "template", tpl);
+    if (!evilap::start(ssid, tpl))
+        return jsonErr(500, "failed to start");
+    json(200, "{\"ok\":true,\"warn\":\"management AP replaced until stopped\"}");
+}
+static void hEvilStop() {
+    requireAuth(); if (!isAuthed()) return;
+    evilap::stop();
+    json(200, "{\"ok\":true}");
+}
+static void hEvilStatus() {
+    requireAuth(); if (!isAuthed()) return;
+    auto st = evilap::stats();
+    json(200, String("{\"running\":") + (evilap::running()?"true":"false") +
+              ",\"hits\":" + st.hits + ",\"captures\":" + st.captures + "}");
+}
+static void hEvilHtmlGet() {
+    requireAuth(); if (!isAuthed()) return;
+    String html;
+    if (decryptFromFile("/portal.html.enc", html) && html.length())
+        return server.send(200, "text/html", html);
+    File f = SD_MMC.open("/portal.html", FILE_READ);
+    if (f) { server.streamFile(f, "text/html"); f.close(); return; }
+    server.send(200, "text/plain", "");   // none yet - editor shows empty
+}
+static void hEvilHtmlSet() {
+    requireAuth(); if (!isAuthed()) return;
+    String body, content;
+    if (!extractJsonStr(body=server.arg("plain"), "content", content)) return jsonErr(400,"bad");
+    // store encrypted so the page can't be read straight off the card
+    bool ok = encryptToFile("/portal.html.enc", normalizeEol(content));
+    json(ok?200:500, String("{\"ok\":")+ (ok?"true":"false") +"}");
+}
+
 // ---- MSC / thumbdrive modes ---------------------------------------------------
 static void hMscGet() {
     requireAuth(); if (!isAuthed()) return;
@@ -661,6 +701,11 @@ bool begin() {
     server.on("/api/file", HTTP_GET, hFileGet);
     server.on("/api/file", HTTP_POST, hFileSave);
     server.on("/api/file", HTTP_DELETE, hFileDelete);
+    server.on("/api/evilap/start", HTTP_POST, hEvilStart);
+    server.on("/api/evilap/stop", HTTP_POST, hEvilStop);
+    server.on("/api/evilap/status", HTTP_GET, hEvilStatus);
+    server.on("/api/evilap/html", HTTP_GET, hEvilHtmlGet);
+    server.on("/api/evilap/html", HTTP_POST, hEvilHtmlSet);
     server.on("/api/msc", HTTP_GET, hMscGet);
     server.on("/api/msc", HTTP_POST, hMscSet);
     server.on("/api/selfdestruct", HTTP_POST, hSelfDestruct);

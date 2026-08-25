@@ -54,6 +54,7 @@ struct RuntimeState {
     bool        usbHostPresent = false;   // plugged into a PC vs powerbank
     String      detectedOS = "Unknown";   // Step 2: last DETECT_OS result
     bool        thumbMode = false;        // Step 3: running as false thumbdrive
+    bool        evilApRunning = false;    // Step 3: portal active
 };
 extern RuntimeState g_state;
 
