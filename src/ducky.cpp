@@ -34,6 +34,7 @@
 #include "crypt.h"
 #include "hw.h"
 #include "detect_os.h"
+#include "spoof.h"
 #include <USB.h>
 #include <USBHIDKeyboard.h>
 #include <USBHIDMouse.h>
@@ -544,6 +545,9 @@ void stop() { g_stopRequested = true; }
 
 void initOnce() {
     if (!kbStarted) {
+        // Identity spoofing must be applied BEFORE the single USB.begin() -
+        // descriptors are read at enumeration time only.
+        spoof::applyToUsb();
         kb.begin();
         mouse.begin();
         USB.begin();       // single call - composite HID keyboard+mouse device

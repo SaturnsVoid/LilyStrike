@@ -34,6 +34,7 @@
 #include <LittleFS.h>
 #include <SD_MMC.h>
 #include "util.h"
+#include "spoof.h"
 #include <mbedtls/base64.h>
 #include <esp_system.h>
 #include <esp32-hal.h>
@@ -362,6 +363,55 @@ static void hMkdir() {
     json(SD_MMC.mkdir(path) ? 200 : 500, "{\"ok\":true}");
 }
 
+// ---- USB identity spoofing -------------------------------------------------
+static void hSpoofGet() {
+    requireAuth(); if (!isAuthed()) return;
+    char hex[12];
+    String presets = "[";
+    for (size_t i = 0; i < spoof::PRESET_COUNT; i++) {
+        snprintf(hex, sizeof(hex), "%04X", spoof::PRESETS[i].vid);
+        char hex2[8]; snprintf(hex2, sizeof(hex2), "%04X", spoof::PRESETS[i].pid);
+        if (i) presets += ",";
+        presets += "{\"vid\":\"" + String(hex) + "\",\"pid\":\"" + hex2 +
+                   "\",\"vendor\":\"" + String(spoof::PRESETS[i].vendor) +
+                   "\",\"product\":\"" + String(spoof::PRESETS[i].product) + "\"}";
+    }
+    presets += "]";
+    snprintf(hex, sizeof(hex), "%04X", spoof::vid());
+    char hex2[8]; snprintf(hex2, sizeof(hex2), "%04X", spoof::pid());
+    json(200, "{\"vid\":\"" + String(hex) + "\",\"pid\":\"" + hex2 +
+              "\",\"vendor\":\"" + spoof::vendor() +
+              "\",\"product\":\"" + spoof::product() +
+              "\",\"serial\":\"" + spoof::serial() +
+              "\",\"presets\":" + presets + "}");
+}
+
+static void hSpoofSet() {
+    requireAuth(); if (!isAuthed()) return;
+    String body = server.arg("plain"), v;
+    if (body.indexOf("\"randomize\":true") >= 0) {
+        spoof::randomize();
+    } else {
+        uint16_t vid = 0, pid = 0;
+        long vidIn = extractJsonNum(body, "vid", -1);
+        long pidIn = extractJsonNum(body, "pid", -1);
+        if (vidIn < 0 || pidIn < 0) {
+            // accept hex strings too ("1E7D")
+            if (extractJsonStr(body, "vid", v))  vid = (uint16_t)strtol(v.c_str(), nullptr, 16);
+            if (extractJsonStr(body, "pid", v))  pid = (uint16_t)strtol(v.c_str(), nullptr, 16);
+        } else { vid = (uint16_t)vidIn; pid = (uint16_t)pidIn; }
+        if (!vid || !pid) return jsonErr(400, "invalid VID/PID");
+        String vendor, product, serial;
+        extractJsonStr(body, "vendor", vendor);
+        extractJsonStr(body, "product", product);
+        extractJsonStr(body, "serial", serial);   // empty -> new random serial
+        spoof::set(vid, pid, vendor, product, serial);
+    }
+    spoof::save();
+    logLine("web: identity spoofed -> " + spoof::vendor() + " " + spoof::product());
+    json(200, "{\"ok\":true,\"note\":\"applies on next boot/plug-in\"}");
+}
+
 // ---- hardware test endpoints (also used by Step-2 SCREEN_/LED_ commands) ---
 static void hDevLed() {
     requireAuth(); if (!isAuthed()) return;
@@ -534,6 +584,8 @@ bool begin() {
     server.on("/api/file", HTTP_GET, hFileGet);
     server.on("/api/file", HTTP_POST, hFileSave);
     server.on("/api/file", HTTP_DELETE, hFileDelete);
+    server.on("/api/spoof", HTTP_GET, hSpoofGet);
+    server.on("/api/spoof", HTTP_POST, hSpoofSet);
     server.on("/api/dev/led", HTTP_GET, hDevLed);       // hardware test
     server.on("/api/mkdir", HTTP_POST, hMkdir);
     server.on("/api/filebin", HTTP_POST, hFileBin);   // binary upload (base64)

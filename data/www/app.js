@@ -269,6 +269,17 @@ function settingsView(){
     <label><input type="checkbox" id="ledOnBoot" style="width:auto"> LED on at boot</label>
     <label>Backlight brightness <input type="number" id="brightness" min="0" max="255" value="128" style="max-width:120px"></label>
     <label><input type="checkbox" id="autoDetectOS" style="width:auto"> Auto-detect OS when plugged into a computer (cached until unplug)</label></div>
+  <div class="panel"><h2>USB Identity (Spoofing)</h2>
+    <p class="muted">What the host sees when the dongle enumerates. Applies on next boot/plug-in.</p>
+    <label>Preset<select id="spoofPreset" onchange="applyPreset()"><option value="">- custom -</option></select></label>
+    <label>VID (hex)<input id="spoofVid" placeholder="1E7D" style="max-width:140px"></label>
+    <label>PID (hex)<input id="spoofPid" placeholder="2E7D" style="max-width:140px"></label>
+    <label>Vendor<input id="spoofVendor"></label>
+    <label>Product<input id="spoofProduct"></label>
+    <label>Serial (empty = random 12-digit each change)<input id="spoofSerial"></label>
+    <button class="small" onclick="saveSpoof()">Save Identity</button>
+    <button class="small" onclick="randomSpoof()">Randomize</button>
+  </div>
   <div class="panel"><h2>Interface</h2>
     <label><input type="checkbox" id="tempOff" style="width:auto"> Temporarily disable web interface (press BOOT button to re-enable)</label>
     <p class="err">Permanent mode disables the interface until the firmware is re-flashed!</p>
@@ -287,6 +298,33 @@ async function loadSettingsState(){
     $("#autoDetectOS").checked=!!s.autoDetectOS;
     if(s.permOff) toast("Interface is PERMANENTLY disabled (takes effect on reboot)","err");
   }catch(e){ /* leave defaults */ }
+  loadSpoof();
+}
+async function loadSpoof(){
+  try{
+    const sp=await api("/api/spoof");
+    $("#spoofVid").value=sp.vid; $("#spoofPid").value=sp.pid;
+    $("#spoofVendor").value=sp.vendor; $("#spoofProduct").value=sp.product;
+    $("#spoofSerial").value=sp.serial;
+    $("#spoofPreset").innerHTML='<option value="">- custom -</option>'+
+      sp.presets.map((p,i)=>`<option value="${i}">${esc(p.vendor)} - ${esc(p.product)}</option>`).join("");
+    window._presets=sp.presets;
+  }catch(e){}
+}
+function applyPreset(){
+  const i=$("#spoofPreset").value; if(i==="")return;
+  const p=window._presets[+i];
+  $("#spoofVid").value=p.vid; $("#spoofPid").value=p.pid;
+  $("#spoofVendor").value=p.vendor; $("#spoofProduct").value=p.product;
+}
+async function saveSpoof(){
+  await jpost("/api/spoof",{vid:$("#spoofVid").value,pid:$("#spoofPid").value,
+    vendor:$("#spoofVendor").value,product:$("#spoofProduct").value,serial:$("#spoofSerial").value});
+  toast("Identity saved - applies on next boot/plug-in");
+}
+async function randomSpoof(){
+  await jpost("/api/spoof",{randomize:true});
+  loadSpoof(); toast("Random identity saved");
 }
 async function saveSettings(){
   // Only send filled boxes - server treats empty strings as "unchanged".
