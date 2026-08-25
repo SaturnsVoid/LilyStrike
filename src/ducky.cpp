@@ -177,22 +177,37 @@ static String evalValueCmd(String token) {
     return "";   // not a value command
 }
 
-// Replace whole-word occurrences of value-command tokens with their values.
-// Only whole words match so literal sentences stay intact.
+// Replace value-command occurrences with their values.
+// Parameterised forms consume their arguments ("RANDOM_CHAR 12" -> 12 chars),
+// so nothing leaks through as literal text (the old whole-token-only version
+// turned "STRING RANDOM_CHAR 12" into "<char> 12").
 static String substValues(const String& s) {
-    String out, tok;
-    auto flush=[&](){
-        if (tok.length()) {
-            String v = evalValueCmd(tok);
-            out += v.length() ? v : tok;
-            tok = "";
-        }
-    };
-    for (size_t k=0; k<=s.length(); k++) {
-        char ch = (k<s.length())?s[k]:' ';
-        if (ch==' ') { flush(); if(k<s.length()) out+=' '; }
-        else tok += ch;
+    // split into whitespace tokens
+    std::vector<String> toks;
+    int start = 0;
+    while (start <= (int)s.length()) {
+        int sp = s.indexOf(' ', start);
+        String t = (sp<0)?s.substring(start):s.substring(start,sp);
+        t.trim();
+        if (t.length()) toks.push_back(t);
+        if (sp<0) break;
+        start = sp+1;
     }
+    String out;
+    for (size_t k=0; k<toks.size(); k++) {
+        String up = toks[k]; up.toUpperCase();
+        // parameterised forms gather their arguments before evaluating
+        size_t argc = (up=="RANDOM_NUM") ? 2 : (up=="RANDOM_CHAR") ? 1 : 0;
+        if (argc) {
+            String call = toks[k];
+            for (size_t a=1; a<=argc && k+a<toks.size(); a++) call += " "+toks[k+a];
+            String v = evalValueCmd(call);
+            if (v.length()) { out += v + " "; k += argc; continue; }
+        }
+        String v = evalValueCmd(toks[k]);
+        out += (v.length() ? v : toks[k]) + " ";
+    }
+    while (out.endsWith(" ")) out.remove(out.length()-1);
     return out;
 }
 
