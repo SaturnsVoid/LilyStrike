@@ -35,6 +35,9 @@
 #include "hw.h"
 #include "detect_os.h"
 #include "spoof.h"
+#include "sys.h"
+#include "msc.h"
+#include <esp32-hal-tinyusb.h>
 #include <USB.h>
 #include <USBHIDKeyboard.h>
 #include <USBHIDMouse.h>
@@ -515,6 +518,29 @@ RunResult run(const String& scriptText, const String& name) {
             logLine("[script:" + name + "] CONNECT_AP '" + ssid + "' " +
                     (WiFi.status()==WL_CONNECTED ? "connected "+WiFi.localIP().toString() : "FAILED"));
         }
+        else if (cmd.equalsIgnoreCase("USB_STORAGE")) {
+            // USB_STORAGE enable|disable - toggles the SD-over-USB interface.
+            String mode = args; mode.trim(); mode.toLowerCase();
+            if (mode.startsWith("enable")) {
+                msc::setStorageEnabled(true);
+                logLine("USB_STORAGE enabled - re-enumerating");
+                delay(200); usb_persist_restart(RESTART_PERSIST);
+            } else if (mode.startsWith("disable")) {
+                msc::setStorageEnabled(false);
+                logLine("USB_STORAGE disabled - re-enumerating");
+                delay(200); usb_persist_restart(RESTART_PERSIST);
+            } else if (mode.startsWith("readonly")) {
+                msc::setStorageEnabled(true);
+                logLine("USB_STORAGE readonly set - applies next plug-in");
+            } else {
+                res.error += "USB_STORAGE: use enable/disable/readonly ";
+            }
+        }
+        else if (cmd.equalsIgnoreCase("SELF_DESTRUCT")) {
+            logLine("script triggered SELF DESTRUCT");
+            delay(300);
+            sys::selfDestruct();
+        }
         else if (cmd.equalsIgnoreCase("RESET_FIRM"))    {
             configFactoryReset();
             logLine("script requested firmware reset");
@@ -548,6 +574,8 @@ void initOnce() {
         // Identity spoofing must be applied BEFORE the single USB.begin() -
         // descriptors are read at enumeration time only.
         spoof::applyToUsb();
+        // USB_STORAGE: expose the SD card alongside HID when enabled.
+        if (msc::storageEnabled()) msc::beginCard(false);
         kb.begin();
         mouse.begin();
         USB.begin();       // single call - composite HID keyboard+mouse device

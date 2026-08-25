@@ -53,6 +53,7 @@ struct RuntimeState {
     String      lastScriptName = "-";
     bool        usbHostPresent = false;   // plugged into a PC vs powerbank
     String      detectedOS = "Unknown";   // Step 2: last DETECT_OS result
+    bool        thumbMode = false;        // Step 3: running as false thumbdrive
 };
 extern RuntimeState g_state;
 

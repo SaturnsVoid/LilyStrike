@@ -21,6 +21,8 @@
 #include "crypt.h"
 #include <USB.h>
 #include "detect_os.h"
+#include "msc.h"
+#include "spoof.h"
 #include "tusb.h"   // tud_connected(): true once a host configures the device
 #include <SD_MMC.h>
 
@@ -57,6 +59,19 @@ void setup() {
     configLoad();
     logLine("boot: ProjectCodename starting");
 
+    msc::loadSettings();
+
+    // ---- stealth boot: False Thumbdrive ----
+    if (msc::shouldBootAsThumbdrive()) {
+        logLine("boot: FALSE THUMBDRIVE MODE");
+        hw::initAll();                 // SD must be mounted; screen/LED stay off
+        spoof::load(); spoof::applyToUsb();   // innocent identity
+        msc::beginCard(true);          // read-only drive
+        USB.begin();
+        g_state.thumbMode = true;
+        return;                        // no WiFi, no web, no HID, no autostart
+    }
+
     // USB HID up first so scripts can run immediately after plug-in.
     ducky::initOnce();
     detectos::initHook();
@@ -77,6 +92,7 @@ void setup() {
 }
 
 void loop() {
+    if (g_state.thumbMode) { delay(100); return; }   // stealth: MSC only
     web::handle();
     delay(2);
 

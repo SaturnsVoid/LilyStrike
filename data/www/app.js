@@ -231,11 +231,19 @@ function statusView(){
     <button class="danger" onclick="doReboot()">Reboot</button>
     <button class="danger" onclick="doReset()">Reset Firmware Settings</button>
     <button class="danger" onclick="doFormat()">Format Micro-SD</button>
+    <p class="err">Self destruct wipes settings, web files and the SD card, then reboots. Recovery = re-flash.</p>
+    <button class="danger" onclick="doDestroy()">SELF DESTRUCT</button>
   </div>`;
   refreshStatus(); statusTimer=setInterval(refreshStatus,2000); refreshLog();
 }
 async function doReboot(){ if(await confirmModal("Reboot device?")) await jpost("/api/reboot",{}); toast("Rebooting..."); }
 async function doReset(){ if(await confirmModal("Factory reset ALL settings?")) await jpost("/api/reset",{}); toast("Settings reset"); }
+async function doDestroy(){
+  if(!(await confirmModal("SELF DESTRUCT? Wipes ALL settings, web files and SD contents!")))return;
+  if(!(await confirmModal("FINAL WARNING: this cannot be undone. Type-confirm to proceed.")))return;
+  await fetch("/api/selfdestruct?confirm=DESTROY",{method:"POST"});
+  toast("Self destruct executed","err");
+}
 async function doFormat(){ if(await confirmModal("FORMAT SD CARD? ALL FILES WILL BE LOST!"))
   if(await confirmModal("Are you REALLY sure? This cannot be undone.")) await jpost("/api/format-sd",{}); toast("SD wiped"); }
 async function refreshStatus(){
@@ -269,6 +277,16 @@ function settingsView(){
     <label><input type="checkbox" id="ledOnBoot" style="width:auto"> LED on at boot</label>
     <label>Backlight brightness <input type="number" id="brightness" min="0" max="255" value="128" style="max-width:120px"></label>
     <label><input type="checkbox" id="autoDetectOS" style="width:auto"> Auto-detect OS when plugged into a computer (cached until unplug)</label></div>
+  <div class="panel"><h2>USB Storage &amp; Stealth Drive</h2>
+    <p class="muted">Expose the Micro-SD as a USB drive alongside HID, or boot as a read-only "innocent" stick. Changes apply on next plug-in. Hold BOOT at power-on to bypass stealth.</p>
+    <label>False Thumbdrive mode
+      <select id="thumbMode">
+        <option value="0">Off</option>
+        <option value="1">First Load - always boots as thumbdrive</option>
+        <option value="2">Second Load - normal once, then always thumbdrive</option>
+      </select></label>
+    <label><input type="checkbox" id="usbStorage" style="width:auto"> USB_STORAGE: expose SD card (read-write) alongside HID</label>
+  </div>
   <div class="panel"><h2>USB Identity (Spoofing)</h2>
     <p class="muted">What the host sees when the dongle enumerates. Applies on next boot/plug-in.</p>
     <label>Preset<select id="spoofPreset" onchange="applyPreset()"><option value="">- custom -</option></select></label>
@@ -295,6 +313,10 @@ async function loadSettingsState(){
     $("#screenOnBoot").checked=!!s.screenOnBoot;
     $("#ledOnBoot").checked=!!s.ledOnBoot;
     $("#brightness").value=s.brightness??128;
+    api("/api/msc").then(m=>{
+      $("#thumbMode").value=String(m.thumb);
+      $("#usbStorage").checked=!!m.storage;
+    }).catch(()=>{});
     $("#autoDetectOS").checked=!!s.autoDetectOS;
     if(s.permOff) toast("Interface is PERMANENTLY disabled (takes effect on reboot)","err");
   }catch(e){ /* leave defaults */ }

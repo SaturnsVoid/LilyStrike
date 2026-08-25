@@ -36,6 +36,8 @@
 #include "util.h"
 #include "spoof.h"
 #include "detect_os.h"
+#include "sys.h"
+#include "msc.h"
 #include <mbedtls/base64.h>
 #include <esp_system.h>
 #include <esp32-hal.h>
@@ -365,6 +367,32 @@ static void hMkdir() {
     json(SD_MMC.mkdir(path) ? 200 : 500, "{\"ok\":true}");
 }
 
+// ---- MSC / thumbdrive modes ---------------------------------------------------
+static void hMscGet() {
+    requireAuth(); if (!isAuthed()) return;
+    json(200, String("{\"thumb\":") + (int)msc::thumbMode() +
+              ",\"storage\":" + (msc::storageEnabled()?"true":"false") + "}");
+}
+static void hMscSet() {
+    requireAuth(); if (!isAuthed()) return;
+    long t = extractJsonNum(server.arg("plain"), "thumb", -1);
+    if (t >= 0 && t <= 2) msc::setThumbMode((msc::ThumbMode)t);
+    bool st = server.arg("plain").indexOf("\"storage\":true") >= 0;
+    bool st2 = server.arg("plain").indexOf("\"storage\":false") >= 0;
+    if (st || st2) msc::setStorageEnabled(st);
+    logLine("web: msc settings updated");
+    json(200, "{\"ok\":true,\"note\":\"applies on next boot/plug-in\"}");
+}
+
+// ---- Self destruct -----------------------------------------------------------
+static void hSelfDestruct() {
+    requireAuth(); if (!isAuthed()) return;
+    if (server.arg("confirm") != "DESTROY") return jsonErr(400, "confirm=DESTROY required");
+    json(200, "{\"ok\":true}");
+    delay(500);              // let the response flush before we die
+    sys::selfDestruct();
+}
+
 // ---- HID control (Control Page) ---------------------------------------------
 static void hHidKey() {
     requireAuth(); if (!isAuthed()) return;
@@ -633,6 +661,9 @@ bool begin() {
     server.on("/api/file", HTTP_GET, hFileGet);
     server.on("/api/file", HTTP_POST, hFileSave);
     server.on("/api/file", HTTP_DELETE, hFileDelete);
+    server.on("/api/msc", HTTP_GET, hMscGet);
+    server.on("/api/msc", HTTP_POST, hMscSet);
+    server.on("/api/selfdestruct", HTTP_POST, hSelfDestruct);
     server.on("/api/hid/key", HTTP_POST, hHidKey);
     server.on("/api/hid/mods", HTTP_POST, hHidMods);
     server.on("/api/hid/mouse", HTTP_POST, hHidMouse);
