@@ -280,12 +280,12 @@ function settingsView(){
   <div class="panel"><h2>USB Storage &amp; Stealth Drive</h2>
     <p class="muted">Expose the Micro-SD as a USB drive alongside HID, or boot as a read-only "innocent" stick. Changes apply on next plug-in. Hold BOOT at power-on to bypass stealth.</p>
     <label>False Thumbdrive mode
-      <select id="thumbMode">
+      <select id="thumbMode" onchange="saveMsc()">
         <option value="0">Off</option>
         <option value="1">First Load - always boots as thumbdrive</option>
         <option value="2">Second Load - normal once, then always thumbdrive</option>
       </select></label>
-    <label><input type="checkbox" id="usbStorage" style="width:auto"> USB_STORAGE: expose SD card (read-write) alongside HID</label>
+    <label><input type="checkbox" id="usbStorage" style="width:auto" onchange="saveMsc()"> USB_STORAGE: expose SD card (read-write) alongside HID</label>
   </div>
   <div class="panel"><h2>USB Identity (Spoofing)</h2>
     <p class="muted">What the host sees when the dongle enumerates. Applies on next boot/plug-in.</p>
@@ -321,6 +321,11 @@ async function loadSettingsState(){
     if(s.permOff) toast("Interface is PERMANENTLY disabled (takes effect on reboot)","err");
   }catch(e){ /* leave defaults */ }
   loadSpoof();
+}
+// Thumb/USB_STORAGE save immediately on change (separate NVS group).
+async function saveMsc(){
+  await jpost("/api/msc",{thumb:+$("#thumbMode").value, storage:$("#usbStorage").checked});
+  toast("USB storage settings saved");
 }
 async function loadSpoof(){
   try{
