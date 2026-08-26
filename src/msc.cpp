@@ -12,6 +12,7 @@
 #include <SD_MMC.h>
 #include <esp32-hal-tinyusb.h>
 #include <Preferences.h>
+#include "config.h"
 
 namespace msc {
 
@@ -40,9 +41,19 @@ bool storageEnabled()            { return s_storage; }
 void setStorageEnabled(bool on)  { s_storage = on; saveSettings(); }
 
 bool shouldBootAsThumbdrive() {
-    // ESCAPE HATCH: hold BOOT (GPIO0 low) at power-on to bypass stealth.
-    pinMode(PIN_BTN_BOOT, INPUT_PULLUP);
-    if (digitalRead(PIN_BTN_BOOT) == LOW) return false;
+    // SECRET RECOVERY TOKEN: /UNLOCK.TXT on the card = one normal boot +
+    // factory reset. Checked BEFORE stealth so the owner can always get in.
+    if (hw::sdMount()) {
+        if (SD_MMC.exists("/UNLOCK.TXT")) {
+            Preferences p; p.begin("msc", false);
+            p.putUChar("thumb", 0);          // back to Off
+            p.putULong("boots2", 0);         // reset second-load counter
+            p.end();
+            SD_MMC.remove("/UNLOCK.TXT");
+            logLine("MSC: UNLOCK.TXT found - stealth disabled");
+            return false;
+        }
+    }
 
     if (s_thumb == ThumbMode::FIRST_LOAD) return true;
 

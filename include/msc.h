@@ -31,9 +31,10 @@ void setThumbMode(ThumbMode m);
 bool storageEnabled();               // USB_STORAGE flag (HID+drive combo)
 void setStorageEnabled(bool on);
 
-// Called EARLY in setup(): returns true if this boot should run in stealth
-// thumbdrive mode (no WiFi/UI/HID). Handles SECOND_LOAD boot counting and
-// the hold-BOOT-to-bypass escape hatch.
+// Secret recovery: if /UNLOCK.TXT exists on the SD card at boot, skip
+// stealth, factory-reset, and delete the token. Owner-only knowledge -
+// puts the card in a PC card reader to create the file. Keeps the BOOT
+// button free as pure download-mode/opsec behavior.
 bool shouldBootAsThumbdrive();
 
 // Configure + begin MSC against the SD card. Call BEFORE ducky::initOnce()
