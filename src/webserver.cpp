@@ -439,8 +439,12 @@ static void hHidKey() {
     String body = server.arg("plain"), key, typ;
     if (!extractJsonStr(body, "key", key)) return jsonErr(400, "bad request");
     extractJsonStr(body, "type", typ);
-    bool down = !typ.equalsIgnoreCase("up");
-    ducky::hidKey(key, down);
+    // "tap" (default) = press + release. Only explicit "up"/"down" hold keys,
+    // otherwise the host auto-repeats forever (stuck-key behavior).
+    typ.toLowerCase();
+    if (typ == "up")          { ducky::hidKey(key, false); }
+    else if (typ == "down")   { ducky::hidKey(key, true); }
+    else                      { ducky::hidKey(key, true); delay(15); ducky::hidKey(key, false); }
     json(200, "{\"ok\":true}");
 }
 static void hHidMods() {
