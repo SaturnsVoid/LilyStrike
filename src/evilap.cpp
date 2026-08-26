@@ -9,6 +9,7 @@
 #include "config.h"
 #include "crypt.h"
 #include "hw.h"
+#include "webserver.h"
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DNSServer.h>
@@ -82,9 +83,38 @@ String renderCustom() {
 }
 
 // ---------------------------------------------------------------- core
-static void handleRootGet() {
+// OSes detect captivity by probing known URLs (captive.apple.com,
+// connectivitycheck.gstatic.com, msftncsi...). Answer those with a 302 so
+// the "sign in to network" popup actually appears; everything else gets the
+// portal page directly.
+static bool isCaptiveProbe() {
+    String host = web->hostHeader();
+    host.toLowerCase();
+    return host.indexOf("apple") >= 0 || host.indexOf("gstatic") >= 0 ||
+           host.indexOf("google") >= 0 || host.indexOf("msftncsi") >= 0 ||
+           host.indexOf("msedge") >= 0 || host.indexOf("firefox") >= 0 ||
+           host.indexOf("connectivitycheck") >= 0 || host.indexOf("nmcheck") >= 0;
+}
+
+static void servePortal() {
     s_stats.hits++;
     web->send(200, "text/html", renderCustom());
+}
+
+static void handleNotFoundOrProbe() {
+    if (isCaptiveProbe()) {
+        String ip = WiFi.softAPIP().toString();
+        web->sendHeader("Location", "http://" + ip + "/", true);
+        web->send(302, "text/plain", "");
+        return;
+    }
+    servePortal();
+}
+
+static void handleRootGet() {
+    // Direct IP visits get the page; probes get redirected (popup trigger).
+    if (isCaptiveProbe()) return handleNotFoundOrProbe();
+    servePortal();
 }
 
 static void handleRootPost() {
@@ -124,11 +154,13 @@ bool start(const String& ssid, const String& htmlName) {
     dns = new DNSServer();
     dns->start(53, "*", WiFi.softAPIP());     // wildcard -> captive portal
 
+    web::suspend();                           // portal takes over port 80
+
     web = new WebServer(80);
     web->on("/", HTTP_GET,  handleRootGet);
     web->on("/", HTTP_POST, handleRootPost);
     web->on("/disable", HTTP_GET, handleDisable);
-    web->onNotFound(handleRootGet);           // any URL = portal (captive behavior)
+    web->onNotFound(handleNotFoundOrProbe);   // any URL = portal (captive behavior)
     web->begin();
 
     g_state.evilApRunning = true;
@@ -144,6 +176,7 @@ void stop() {
     WiFi.mode(WIFI_AP);
     WiFi.softAP(cfg.wifiSSID, strlen(cfg.wifiPass) >= 8 ? cfg.wifiPass : "dongle1234");
     g_state.evilApRunning = false;
+    web::resume();                            // give management UI port 80 back
     logLine("EvilAP stopped - normal interface restored");
 }
 

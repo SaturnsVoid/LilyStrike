@@ -738,6 +738,11 @@ bool begin() {
 
 void handle() { if (s_running) server.handleClient(); }
 
+// EvilAP needs port 80; two servers can't share it. Suspend = close socket,
+// resume = re-bind (clients just refresh).
+void suspend() { if (s_running) server.stop(); }
+void resume()  { if (s_running) server.begin(); }
+
 String localIP() { return WiFi.softAPIP().toString(); }
 
 } // namespace web
