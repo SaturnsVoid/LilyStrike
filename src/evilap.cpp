@@ -141,7 +141,11 @@ static void handleRootPost() {
         "<p>You are being connected to the network...</p></body></html>");
 }
 
-static void handleDisable() { stop(); }
+static volatile bool s_stopRequested = false;
+static void handleDisable() { s_stopRequested = true; }   // deferred: deleting
+                                                         // the server from
+                                                         // inside its own
+                                                         // handler = UAF
 
 bool start(const String& ssid, const String& htmlName) {
     if (running()) stop();
@@ -184,6 +188,9 @@ void handle() {
     if (!running()) return;
     if (dns) dns->processNextRequest();
     if (web) web->handleClient();
+    // Tear down AFTER the request completes - /disable must not free the
+    // object that's currently serving it.
+    if (s_stopRequested) { s_stopRequested = false; stop(); }
 }
 
 } // namespace evilap

