@@ -74,7 +74,10 @@ void beginCard(bool readOnly) {
     // Lambdas can't capture; readOnly goes through a static mirror.
     s_ro = readOnly;
     msc.onRead([](uint32_t lba, uint32_t offset, void* buf, uint32_t sz) -> int32_t {
-        return (int32_t)SD_MMC.readRAW((uint8_t*)buf, lba);   // bytes read
+        // CRITICAL: readRAW returns a bool - the MSC callback must report
+        // BYTES copied. Returning the bool (1/0) made every 512-byte sector
+        // look like a 1-byte read and Windows refused to mount the drive.
+        return SD_MMC.readRAW((uint8_t*)buf, lba) ? (int32_t)sz : 0;
     });
     msc.onWrite([](uint32_t lba, uint32_t offset, uint8_t* buf, uint32_t sz) -> int32_t {
         if (s_ro) return 0;                                    // swallow writes
