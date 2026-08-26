@@ -44,13 +44,21 @@ bool shouldBootAsThumbdrive() {
     // SECRET RECOVERY TOKEN: /UNLOCK.TXT on the card = one normal boot +
     // factory reset. Checked BEFORE stealth so the owner can always get in.
     if (hw::sdMount()) {
-        if (SD_MMC.exists("/UNLOCK.TXT")) {
+        // Case-insensitive: Windows drops files as UNLOCK.txt, owners type
+        // it however they like. FatFs name storage isn't reliably normalized
+        // through the Arduino wrapper, so probe common casings.
+        const char* tokenNames[] = {"/UNLOCK.TXT","/UNLOCK.txt","/unlock.txt",
+                                    "/Unlock.txt","/unlock.TXT"};
+        String found = "";
+        for (auto n : tokenNames)
+            if (SD_MMC.exists(n)) { found = n; break; }
+        if (found.length()) {
             Preferences p; p.begin("msc", false);
             p.putUChar("thumb", 0);          // back to Off
             p.putULong("boots2", 0);         // reset second-load counter
             p.end();
-            SD_MMC.remove("/UNLOCK.TXT");
-            logLine("MSC: UNLOCK.TXT found - stealth disabled");
+            SD_MMC.remove(found);
+            logLine("MSC: unlock token found - stealth disabled");
             return false;
         }
     }
