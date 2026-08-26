@@ -74,14 +74,15 @@ void setup() {
         return;                        // no WiFi, no web, no HID, no autostart
     }
 
-    // USB HID up first so scripts can run immediately after plug-in.
-    ducky::initOnce();
-    detectos::initHook();
-
+    // Hardware first: MSC (USB_STORAGE) needs the SD mounted before the
+    // USB stack comes up, otherwise beginCard bails with "no SD".
     if (!hw::initAll()) {
         // SD missing is non-fatal but note it on screen briefly
         hw::screenText("SD CARD ERROR");
     }
+
+    ducky::initOnce();
+    detectos::initHook();
 
     // USB HID device presence detection:
     // TinyUSB reports "connected" when a host enumerates/configures the CDC -
