@@ -67,8 +67,9 @@ void beginCard(bool readOnly) {
     uint64_t bytes = SD_MMC.cardSize();
     uint32_t sectors = (uint32_t)(bytes / LBA);
 
-    msc.vendorID("DONGLE");
-    msc.productID(readOnly ? "USB Drive" : "USB Storage");
+    // NOTE: do NOT call vendorID/productID here! Those strings share the
+    // device-wide descriptor pool and would CLOBBER the spoofed identity set
+    // by spoof::applyToUsb(). Only per-LUN settings belong here.
     msc.productRevision("1.0");
     // Lambdas can't capture; readOnly goes through a static mirror.
     s_ro = readOnly;
