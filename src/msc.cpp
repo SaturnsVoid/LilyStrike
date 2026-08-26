@@ -43,7 +43,14 @@ void setStorageEnabled(bool on)  { s_storage = on; saveSettings(); }
 bool shouldBootAsThumbdrive() {
     // SECRET RECOVERY TOKEN: /UNLOCK.TXT on the card = one normal boot +
     // factory reset. Checked BEFORE stealth so the owner can always get in.
-    if (hw::sdMount()) {
+    // NOTE: this runs BEFORE hw::initAll(), so the SD may not be mounted yet.
+    // Mount it here independently or the token check silently never fires.
+    if (!hw::sdMount()) {
+        SD_MMC.setPins(SD_CLK_PIN, SD_CMD_PIN,
+                       SD_D0_PIN, SD_D1_PIN, SD_D2_PIN, SD_D3_PIN);
+        if (!SD_MMC.begin("/sdcard", true)) logLine("MSC token check: no SD");
+    }
+    if (SD_MMC.cardType() != CARD_NONE) {
         // Case-insensitive: Windows drops files as UNLOCK.txt, owners type
         // it however they like. FatFs name storage isn't reliably normalized
         // through the Arduino wrapper, so probe common casings.

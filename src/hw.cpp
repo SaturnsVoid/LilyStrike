@@ -83,7 +83,9 @@ bool initAll() {
     // --- SD (4-bit SD_MMC) ---
     SD_MMC.setPins(SD_CLK_PIN, SD_CMD_PIN,
                    SD_D0_PIN, SD_D1_PIN, SD_D2_PIN, SD_D3_PIN);
-    sdOK = SD_MMC.begin("/sdcard", true);   // mode1bit=false => 4-bit
+    // May already be mounted (msc token-check mounts early) - don't fail on it.
+    if (SD_MMC.cardType() != CARD_NONE) sdOK = true;
+    else sdOK = SD_MMC.begin("/sdcard", true);   // mode1bit=false => 4-bit
     if (!sdOK) logLine("SD mount FAILED");
     else {
         if (!SD_MMC.exists("/scripts")) SD_MMC.mkdir("/scripts");
