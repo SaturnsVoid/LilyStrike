@@ -61,12 +61,13 @@ void setup() {
     logLine("boot: ProjectCodename starting");
 
     msc::loadSettings();
+    spoof::load();                 // read saved (or first-boot random) identity
 
     // ---- stealth boot: False Thumbdrive ----
     if (msc::shouldBootAsThumbdrive()) {
         logLine("boot: FALSE THUMBDRIVE MODE");
         hw::initAll();                 // SD must be mounted; screen/LED stay off
-        spoof::load(); spoof::applyToUsb();   // innocent identity
+        spoof::applyToUsb();                  // innocent identity (loaded above)
         msc::beginCard(true);          // read-only drive
         USB.begin();
         g_state.thumbMode = true;
