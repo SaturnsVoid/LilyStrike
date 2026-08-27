@@ -92,6 +92,12 @@ void beginCard(bool readOnly) {
     const uint32_t LBA = 512;
     uint64_t bytes = SD_MMC.cardSize();
     uint32_t sectors = (uint32_t)(bytes / LBA);
+    if (!sectors) {
+        // cardSize()==0 would create an EMPTY LUN -> exactly the "grayed-out
+        // USB Drive" symptom. Bail loudly instead.
+        logLine("MSC ERROR: card reports 0 sectors!");
+        return;
+    }
 
     // NOTE: do NOT call vendorID/productID here! Those strings share the
     // device-wide descriptor pool and would CLOBBER the spoofed identity set
@@ -110,6 +116,7 @@ void beginCard(bool readOnly) {
         return SD_MMC.writeRAW(buf, lba) ? (int32_t)sz : 0;
     });
     msc.onStartStop([](uint8_t pc, bool start, bool eject) -> bool { return true; });
+    msc.mediaPresent(true);
     msc.isWritable(!readOnly);
     msc.begin(sectors, LBA);
     logLine(String("MSC: card exposed ") + (readOnly ? "READ-ONLY" : "read-write") +
