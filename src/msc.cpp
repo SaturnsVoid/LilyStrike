@@ -109,14 +109,32 @@ void beginCard(bool readOnly) {
     // Lambdas can't capture; readOnly goes through a static mirror.
     s_ro = readOnly;
     msc.onRead([](uint32_t lba, uint32_t offset, void* buf, uint32_t sz) -> int32_t {
-        // CRITICAL: readRAW returns a bool - the MSC callback must report
-        // BYTES copied. Returning the bool (1/0) made every 512-byte sector
-        // look like a 1-byte read and Windows refused to mount the drive.
-        return SD_MMC.readRAW((uint8_t*)buf, lba) ? (int32_t)sz : 0;
+        // Two CRITICAL requirements:
+        //  1. Return BYTES copied (readRAW returns bool - reporting 1/0 made
+        //     every sector look like a 1-byte read).
+        //  2. Fill the WHOLE buffer: TinyUSB may request multi-sector chunks
+        //     (bufsize > 512). Reading only the first sector and claiming
+        //     success streams garbage after it -> volume never mounts.
+        uint8_t* dst = (uint8_t*)buf;
+        uint32_t done = 0;
+        while (done < sz) {
+            // 'offset' = bytes to skip inside the first requested sector
+            if (!SD_MMC.readRAW(dst, lba + done / 512)) return done;
+            done += 512;
+            dst += 512;
+        }
+        return (int32_t)sz;
     });
     msc.onWrite([](uint32_t lba, uint32_t offset, uint8_t* buf, uint32_t sz) -> int32_t {
         if (s_ro) return 0;                                    // swallow writes
-        return SD_MMC.writeRAW(buf, lba) ? (int32_t)sz : 0;
+        // Multi-sector writes, symmetric with the read path.
+        uint32_t done = 0;
+        while (done < sz) {
+            if (!SD_MMC.writeRAW(buf, lba + done / 512)) return done;
+            buf += 512;
+            done += 512;
+        }
+        return (int32_t)sz;
     });
     msc.onStartStop([](uint8_t pc, bool start, bool eject) -> bool { return true; });
     msc.mediaPresent(true);
