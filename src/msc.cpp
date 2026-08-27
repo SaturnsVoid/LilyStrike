@@ -12,6 +12,19 @@
 #include <SD_MMC.h>
 #include <esp32-hal-tinyusb.h>
 #include <Preferences.h>
+#include <sdmmc_cmd.h>
+
+// Reaches the protected sdmmc_card_t* inside SDMMCFS by subclassing with an
+// IDENTICAL layout (adds methods only) - same technique USBArmyKnife uses.
+// This lets the MSC callbacks use sdmmc_read/write_sectors: the native
+// multi-sector driver, far more reliable than per-sector SD_MMC.readRAW.
+namespace fs {
+  class SDMMCFS2 : public SDMMCFS {
+  public:
+    sdmmc_card_t* getCard() { return _card; }
+  };
+}
+static fs::SDMMCFS2* cardFS() { return (fs::SDMMCFS2*)&SD_MMC; }
 #include "config.h"
 
 namespace msc {
@@ -115,26 +128,22 @@ void beginCard(bool readOnly) {
         //  2. Fill the WHOLE buffer: TinyUSB may request multi-sector chunks
         //     (bufsize > 512). Reading only the first sector and claiming
         //     success streams garbage after it -> volume never mounts.
-        uint8_t* dst = (uint8_t*)buf;
-        uint32_t done = 0;
-        while (done < sz) {
-            // 'offset' = bytes to skip inside the first requested sector
-            if (!SD_MMC.readRAW(dst, lba + done / 512)) return done;
-            done += 512;
-            dst += 512;
-        }
-        return (int32_t)sz;
+        auto* card = cardFS()->getCard();
+        if (!card) return -1;
+        // Native multi-sector read - handles any bufsize in one driver call.
+        size_t nSectors = sz / 512;
+        if (sdmmc_read_sectors(card, buf, lba, nSectors) == ESP_OK)
+            return (int32_t)sz;
+        return -1;
     });
     msc.onWrite([](uint32_t lba, uint32_t offset, uint8_t* buf, uint32_t sz) -> int32_t {
         if (s_ro) return 0;                                    // swallow writes
-        // Multi-sector writes, symmetric with the read path.
-        uint32_t done = 0;
-        while (done < sz) {
-            if (!SD_MMC.writeRAW(buf, lba + done / 512)) return done;
-            buf += 512;
-            done += 512;
-        }
-        return (int32_t)sz;
+        auto* card = cardFS()->getCard();
+        if (!card) return -1;
+        size_t nSectors = sz / 512;
+        if (sdmmc_write_sectors(card, buf, lba, nSectors) == ESP_OK)
+            return (int32_t)sz;
+        return -1;
     });
     msc.onStartStop([](uint8_t pc, bool start, bool eject) -> bool { return true; });
     msc.mediaPresent(true);
