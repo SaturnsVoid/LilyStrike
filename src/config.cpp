@@ -3,7 +3,7 @@
 // ============================================================================
 #include "config.h"
 #include "crypt.h"
-#include <esp_system.h>
+#include "msc.h"
 #include <SD_MMC.h>
 
 DeviceConfig cfg;
@@ -80,8 +80,9 @@ void logLine(const String& s) {
     s_head = (s_head + 1) % LOG_LINES;
     if (s_count < LOG_LINES) s_count++;
     xSemaphoreGive(s_logMtx);
-    // Encrypted append to SD (best effort; skip if SD absent).
-    if (SD_MMC.cardType() != CARD_NONE) {
+    // Encrypted append to SD - but NEVER while the host owns the raw card
+    // (USB_STORAGE/False Thumbdrive): concurrent FS access corrupts both.
+    if (!msc::active() && SD_MMC.cardType() != CARD_NONE) {
         String existing;
         decryptFromFile("/logs/system.log.enc", existing);   // empty ok (new/corrupt)
         existing += entry + "\n";

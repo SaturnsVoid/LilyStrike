@@ -18,7 +18,10 @@ namespace msc {
 
 static ThumbMode s_thumb = ThumbMode::OFF;
 static bool s_storage = false;
+static bool s_active = false;    // card currently exposed raw to host
 static USBMSC msc;
+
+bool active() { return s_active; }
 static bool s_ro = true;   // static mirror: lambdas cannot capture
 
 void loadSettings() {
@@ -119,6 +122,7 @@ void beginCard(bool readOnly) {
     msc.mediaPresent(true);
     msc.isWritable(!readOnly);
     msc.begin(sectors, LBA);
+    s_active = true;
     logLine(String("MSC: card exposed ") + (readOnly ? "READ-ONLY" : "read-write") +
             " (" + String(sectors * LBA / 1048576) + " MB)");
 }

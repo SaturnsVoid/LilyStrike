@@ -31,6 +31,10 @@ void setThumbMode(ThumbMode m);
 bool storageEnabled();               // USB_STORAGE flag (HID+drive combo)
 void setStorageEnabled(bool on);
 
+// True while the card is exposed raw to the host. Device-side FatFs writes
+// MUST stop during this or both sides corrupt each other's view of the FS.
+bool active();
+
 // Secret recovery: if /UNLOCK.TXT exists on the SD card at boot, skip
 // stealth, factory-reset, and delete the token. Owner-only knowledge -
 // puts the card in a PC card reader to create the file. Keeps the BOOT
