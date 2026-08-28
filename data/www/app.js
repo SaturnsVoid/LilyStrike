@@ -733,7 +733,8 @@ function loadSample(title){
 /* ============================ STATUS VIEW ============================= */
 let statusTimer=null;
 function statusView(){
-  view.innerHTML=`<div class="panel"><h2>${icon("gauge")} System Status</h2><table id="statT"></table></div>
+  view.innerHTML=`<div id="safeWarn"></div>
+  <div class="panel"><h2>${icon("gauge")} System Status</h2><table id="statT"></table></div>
   <div class="panel"><h2>${icon("file")} Debug Log</h2>
     <button class="small" onclick="refreshLog()">Refresh</button>
     <pre id="logBox" style="max-height:280px;overflow:auto;background:var(--code-bg);padding:10px;border-radius:8px;margin-top:10px" class="mono"></pre></div>
@@ -754,6 +755,10 @@ async function refreshStatus(){
   const s=await api("/api/status");
   const up=Math.floor(s.uptime), hh=Math.floor(up/3600), mm=Math.floor(up%3600/60), ss=up%60;
   const st=s.scriptState==="RUNNING"?["run","Running"]:s.scriptState==="FINISHED"?["fin","Finished"]:["sb","Standby"];
+  $("#safeWarn").innerHTML = s.safeMode
+    ? `<div class="panel" style="border-color:var(--warn)"><h2 style="color:var(--warn)">⚠ Safe Mode Active</h2>
+       <p class="muted" style="font-size:13px">The device failed to boot normally 3+ times, so it started with FACTORY DEFAULTS (in RAM only — your saved settings are intact). Fix whatever caused the crashes, then Reboot in the Settings page to restore your configuration.</p></div>`
+    : "";
   $("#statT").innerHTML=`
    <tr><td>Firmware</td><td>${esc(s.fwName||"")} <span class="muted">v${esc(s.fw||"")}</span></td></tr>
    <tr><td>Free RAM</td><td>${(s.heap/1024).toFixed(0)} KB <span class="muted">(min ${(s.heapMin/1024)|0} KB)</span></td></tr>

@@ -30,8 +30,9 @@ static void applyDefaults() {
     cfg.ifaceTempOff = false;
 }
 
-void configLoad() {
+void configLoad(bool safeMode) {
     applyDefaults();
+    if (safeMode) return;                // defaults only - saved config untouched
     prefs.begin(NS, true);               // read-only
     prefs.getString("ssid", cfg.wifiSSID, sizeof(cfg.wifiSSID));
     prefs.getString("wpass", cfg.wifiPass, sizeof(cfg.wifiPass));

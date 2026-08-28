@@ -125,6 +125,7 @@ static void hStatus() {
          ",\"lockKeys\":\"" + detectos::lockState() + "\"" +
          ",\"scriptSince\":" + String((uint32_t)g_state.scriptStateSince) +
          ",\"fw\":\"" FW_VERSION "\",\"fwName\":\"" FW_NAME "\"" +
+         ",\"safeMode\":" + String(g_state.safeMode ? "true":"false") +
          "}";
     json(200, s);
 }

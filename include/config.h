@@ -33,8 +33,9 @@ struct DeviceConfig {
 extern DeviceConfig cfg;
 
 // Load all settings from NVS into `cfg`, applying factory defaults for any
-// missing key. Called once from setup().
-void configLoad();
+// missing key. Called once from setup(). safeMode=true skips NVS entirely
+// (factory defaults in RAM; saved settings remain untouched on flash).
+void configLoad(bool safeMode = false);
 
 // Persist a single field group. Fine-grained saves avoid wearing NVS.
 void configSaveWiFi();
@@ -57,6 +58,7 @@ struct RuntimeState {
     String      detectedOS = "Unknown";   // Step 2: last DETECT_OS result
     bool        thumbMode = false;        // Step 3: running as false thumbdrive
     bool        evilApRunning = false;    // Step 3: portal active
+    bool        safeMode = false;         // Step 4x: crash-loop fallback active
 };
 extern RuntimeState g_state;
 

@@ -88,7 +88,23 @@ static void applyMacSpoof() {
 
 void setup() {
     Serial.begin(115200);
-    configLoad();
+
+    // ---- Safe mode: detect crash loops -----------------------------------
+    // Counter increments at boot, cleared once the web UI is up. 3+ means
+    // the last N boots never reached a usable state -> skip loading saved
+    // settings (factory defaults in RAM only) so the interface is always
+    // reachable even if bad settings/payloads keep crashing the device.
+    {
+        Preferences p; p.begin("safemode", false);
+        uint32_t crashes = p.getULong("count", 0) + 1;
+        p.putULong("count", crashes);
+        p.end();
+        g_state.safeMode = (crashes >= 3);
+    }
+
+    configLoad(g_state.safeMode);   // true = ignore NVS, use defaults
+    if (g_state.safeMode)
+        logLine("SAFE MODE: 3+ consecutive failed boots - running with DEFAULTS (your saved settings are untouched)");
     logLine(String("boot: ") + FW_NAME + " v" + FW_VERSION);
 
     msc::loadSettings();
@@ -122,8 +138,14 @@ void setup() {
 
     power::load();
     applyMacSpoof();                    // BEFORE softAP - base MAC seeds STA+AP
+    // UI is up -> boot counted as successful; clear the crash counter.
+    {
+        Preferences p; p.begin("safemode", false);
+        p.putULong("count", 0);
+        p.end();
+    }
     web::begin();
-    power::apply();                     // CPU clock + TX power
+    if (g_state.safeMode) logLine("safe mode: fix settings, reboot to restore your config");    power::apply();                     // CPU clock + TX power
 
     if (cfg.ledOnBoot) { RGB p = {0x80, 0x00, 0xC0}; hw::ledSet(p); }   // purple
 }
@@ -151,8 +173,14 @@ void loop() {
             configSaveInterfaceFlags();
             power::load();
     applyMacSpoof();                    // BEFORE softAP - base MAC seeds STA+AP
+    // UI is up -> boot counted as successful; clear the crash counter.
+    {
+        Preferences p; p.begin("safemode", false);
+        p.putULong("count", 0);
+        p.end();
+    }
     web::begin();
-    power::apply();                     // CPU clock + TX power
+    if (g_state.safeMode) logLine("safe mode: fix settings, reboot to restore your config");    power::apply();                     // CPU clock + TX power
             logLine("btn: interface re-enabled");
             btnDownAt = 0xFFFFFFFF - 2000;         // don't retrigger
         }
