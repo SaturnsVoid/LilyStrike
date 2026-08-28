@@ -154,7 +154,7 @@ function toolsView() {
         </div>
         <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
           <input id="scriptName" placeholder="filename.ds" style="max-width:200px">
-          <input id="scriptDesc" placeholder="Short description (shown in sidebar)" style="flex:1;min-width:180px">
+          <input id="scriptDesc" maxlength="60" placeholder="Short description (shown in sidebar)" style="flex:1;min-width:180px">
           <select id="scriptLayout" style="max-width:130px" title="Keyboard layout for this script"></select>
         </div>
       </div>

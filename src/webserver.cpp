@@ -223,6 +223,8 @@ static void hScriptDelete() {
     requireAuth(); if (!isAuthed()) return;
     String name = sanitizeName(server.arg("name"));
     bool ok = SD_MMC.remove(("/scripts/" + name).c_str());
+    // meta sidecar (description + layout) dies with its script
+    if (ok) SD_MMC.remove(metaPath(name).c_str());
     json(ok ? 200 : 500, String("{\"ok\":") + (ok ? "true" : "false") + "}");
 }
 
@@ -557,6 +559,7 @@ static void hScriptMetaSet() {
     String body = server.arg("plain"), name, desc, layout;
     if (!extractJsonStr(body, "name", name)) return jsonErr(400, "name required");
     extractJsonStr(body, "desc", desc);
+    if (desc.length() > 60) desc = desc.substring(0, 60);   // hard limit
     extractJsonStr(body, "layout", layout);
     name = sanitizeName(name);
     writeMeta(name, desc, layout);
