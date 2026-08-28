@@ -106,7 +106,10 @@ async function checkEula() {
     if (e.agreed) return;
     // NOTE: no scroll-gating - ticking the checkbox IS the agreement.
     // Scroll detection proved unreliable across mobile browsers.
-    await modal(`<h3>Before you begin</h3>
+    // IMPORTANT: modal() returns a Promise that resolves only when the modal
+    // CLOSES - so handlers must be wired immediately after the call, NOT
+    // after awaiting it (awaiting here deadlocked the whole dialog).
+    modal(`<h3>Before you begin</h3>
       <div class="eula-text" id="eulaBox">${esc(EULA_TEXT)}</div>
       <label style="margin-top:12px"><input type="checkbox" id="eulaChk">
         I have read and agree to the terms above</label>
