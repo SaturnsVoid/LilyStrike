@@ -218,6 +218,18 @@ static String evalValueCmd(String token) {
     return "";   // not a value command
 }
 
+// ---- Script variables (VAR cmd / $name substitution) ----
+struct ScriptVar { String name, value; };
+static std::vector<ScriptVar> g_vars;
+static void setVar(const String& name, const String& value) {
+    for (auto& v : g_vars) if (v.name == name) { v.value = value; return; }
+    g_vars.push_back({name, value});
+}
+static String getVar(const String& name) {
+    for (auto& v : g_vars) if (v.name == name) return v.value;
+    return "";
+}
+
 // Replace value-command occurrences with their values.
 // Parameterised forms consume their arguments ("RANDOM_CHAR 12" -> 12 chars),
 // so nothing leaks through as literal text (the old whole-token-only version
@@ -236,6 +248,12 @@ static String substValues(const String& s) {
     }
     String out;
     for (size_t k=0; k<toks.size(); k++) {
+        // $name variable substitution first (also embedded: $name/x patterns)
+        if (toks[k].startsWith("$")) {
+            String nm = toks[k].substring(1);
+            String v = getVar(nm);
+            if (v.length() || g_vars.size()) { out += (v.length()?v:"") + " "; continue; }
+        }
         String up = toks[k]; up.toUpperCase();
         // parameterised forms gather their arguments before evaluating
         size_t argc = (up=="RANDOM_NUM") ? 2 : (up=="RANDOM_CHAR") ? 1 : 0;
@@ -355,6 +373,7 @@ RunResult run(const String& scriptText, const String& name) {
         }
     }
 
+    g_vars.clear();
     int defaultDelay = 0;
     String lastCmdLine;
 
@@ -516,6 +535,16 @@ RunResult run(const String& scriptText, const String& name) {
             }
         }
         else if (cmd.equalsIgnoreCase("HUMAN_TYPE"))    { humanType(substValues(args)); }
+        else if (cmd.equalsIgnoreCase("VAR"))           {
+            // VAR name value... - value may contain value-commands ($ vars too)
+            int sp2 = args.indexOf(' ');
+            if (sp2 < 0) { res.error += "VAR: needs name + value "; }
+            else {
+                String nm = args.substring(0, sp2), val = args.substring(sp2+1);
+                setVar(nm, substValues(val));
+                logLine("[script:" + name + "] $" + nm + " = " + getVar(nm));
+            }
+        }
         else if (cmd.equalsIgnoreCase("GET_IP"))        {
             // Types our IP so scripts can exfil it to the user/host screen.
             IPAddress ip = WiFi.localIP();

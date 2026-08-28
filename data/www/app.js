@@ -663,6 +663,7 @@ const REF_GROUPS=[
  ["IF_WIFI","True when the device is connected to a network as a client (after a successful CONNECT_AP).","CONNECT_AP Office ap-password\nIF_WIFI\n  STRING connected\nELSE\n  STRING failed\nEND_IF"],
  ["ELSE_IF <value>","Alternative branch that INHERITS the parent condition type: inside IF_OS it compares OS names, inside IF_SSID it checks another SSID.","IF_SSID CorpWiFi\n  CONNECT_AP CorpWiFi pw1\nELSE_IF HomeWiFi\n  CONNECT_AP HomeWiFi pw2\nEND_IF"],
  ["Value commands","Commands that produce a value usable in STRING payloads or IF conditions: GET_IP, DETECT_OS, WIFI_CONNECTED, RANDOM_NUM <min> <max>, RANDOM_CHAR <len>.","STRING IP is GET_IP\nIF RANDOM_NUM 1 10 = 7\n  STRING lucky\nEND_IF"],
+ ["VAR <name> <value> / $name","Store a script variable and reference it anywhere with $name. Values are evaluated when VAR runs, so they can contain value commands. Variables are per-run (cleared at script start).","VAR target $notepad\nVAR user RANDOM_CHAR 8\nSTRINGLN run as $target\nSTRING pass: $user"],
 ]],
 ["Device Hardware",[
  ["LED_ON #RRGGBB","Light the status LED with a hex color.","LED_ON #FF00AA"],
