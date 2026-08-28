@@ -416,19 +416,16 @@ function controlView(){
   view.innerHTML=`<div class="panel"><h2>${icon("keyboard")} Live Control</h2>
    <p class="muted">Control the host computer directly. Modifier buttons are sticky.</p>
    <div class="live-wrap">
-    <div class="live-sec" style="max-width:230px;order:3">
-      <h3 style="font-size:13px;color:var(--muted)">HOST LOCK KEYS</h3>
-      <div class="lockbox" id="lockKeys">(no reports yet)</div>
-      <p class="muted" style="font-size:11.5px;margin-top:8px">Live from host LED reports. Toggle caps lock on the host once to activate.</p>
-    </div>
-    <div class="live-sec">
+    <div class="live-sec" style="flex:1.4;min-width:0">
       <h3 style="font-size:13px;color:var(--muted)">KEYBOARD</h3>
       <div style="display:flex;gap:4px;justify-content:center;margin-bottom:6px" id="mods">
         ${MOD_NAMES.map(m=>`<button class="key mod" data-mod="${m}" style="min-width:52px">${m}</button>`).join("")}
       </div>
       <div id="kbd">${kbHtml}</div>
     </div>
-    <div class="live-sec">
+    <div class="live-sec" style="flex:1;min-width:250px">
+      <h3 style="font-size:13px;color:var(--muted)">HOST LOCK KEYS</h3>
+      <div class="lockbox" id="lockKeys" style="margin-bottom:14px">(no reports yet)</div>
       <h3 style="font-size:13px;color:var(--muted)">POINTER</h3>
       <div style="text-align:center;margin-bottom:10px">
         <button class="small" id="modePad" onclick="setMouseMode('pad')">Touchpad</button>
