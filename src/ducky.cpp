@@ -545,8 +545,8 @@ RunResult run(const String& scriptText, const String& name) {
                 logLine("[script:" + name + "] DISABLE_CAPS: caps already off");
             }
         }
-        else if (cmd.equalsIgnoreCase("TOGGLE_KEY"))    {
-            // TOGGLE_KEY <caps|num|scroll> <timeoutMs> <RUN|SKIP>
+        else if (cmd.equalsIgnoreCase("TRIGGER_KEY"))    {
+            // TRIGGER_KEY <caps|num|scroll> <timeoutMs> <RUN|SKIP>
             // Waits for the HUMAN to press the chosen lock key (LED report
             // changes state). Branch on whether it happened:
             //   RUN  = continue if pressed (abort script if timeout)
@@ -554,14 +554,14 @@ RunResult run(const String& scriptText, const String& name) {
             // inverted for usefulness: RUN waits for press then continues;
             // on timeout with RUN -> abort. SKIP = abort only if pressed.
             int sp2 = args.indexOf(' ');
-            if (sp2 < 0) { res.error += "TOGGLE_KEY: lock timeout RUN|SKIP "; break; }
+            if (sp2 < 0) { res.error += "TRIGGER_KEY: lock timeout RUN|SKIP "; break; }
             String lock = args.substring(0, sp2); lock.trim(); lock.toLowerCase();
             String rest = args.substring(sp2+1); rest.trim();
             int sp3 = rest.indexOf(' ');
             uint32_t timeoutMs = constrain((long)rest.substring(0, sp3<0?rest.length():sp3).toInt(), 100, 3600000);
             String mode = (sp3<0) ? "RUN" : rest.substring(sp3+1); mode.trim(); mode.toUpperCase();
             if (mode != "RUN" && mode != "SKIP") mode = "RUN";
-            logLine("[script:" + name + "] TOGGLE_KEY " + lock + " waiting " + timeoutMs + "ms (" + mode + ")");
+            logLine("[script:" + name + "] TRIGGER_KEY " + lock + " waiting " + timeoutMs + "ms (" + mode + ")");
             // wait for ANY state change of the chosen lock (host-side press)
             bool before = (lock=="num") ? detectos::numOn() :
                           (lock=="scroll") ? detectos::scrollOn() : detectos::capsOn();
@@ -575,13 +575,13 @@ RunResult run(const String& scriptText, const String& name) {
                 delay(40);
             }
             if (mode == "RUN" && !pressed) {
-                res.ok = false; res.error = "TOGGLE_KEY timeout";
-                logLine("[script:" + name + "] TOGGLE_KEY: timeout - aborting");
+                res.ok = false; res.error = "TRIGGER_KEY timeout";
+                logLine("[script:" + name + "] TRIGGER_KEY: timeout - aborting");
             } else if (mode == "SKIP" && pressed) {
-                logLine("[script:" + name + "] TOGGLE_KEY: pressed - skipping rest");
+                logLine("[script:" + name + "] TRIGGER_KEY: pressed - skipping rest");
                 break;   // stop executing further lines, report finished
             } else {
-                logLine("[script:" + name + "] TOGGLE_KEY: " + (pressed?"pressed":"timeout(skip)"));
+                logLine("[script:" + name + "] TRIGGER_KEY: " + (pressed?"pressed":"timeout(skip)"));
             }
         }
         else if (cmd.equalsIgnoreCase("VAR"))           {

@@ -769,7 +769,7 @@ const REF_GROUPS=[
  ["DETECT_OS","Fingerprint the host OS via the keyboard-LED side channel (~10 s, toggles your lock keys and restores them). Result is cached until unplug and shown on Status.","DETECT_OS\nIF_OS windows\n  GUI r\nEND_IF"],
  ["RESET_FIRM","Factory-reset all settings and reboot. DESTRUCTIVE.","RESET_FIRM"],
  ["DISABLE_CAPS","Checks the host's caps lock state (via LED reports) and turns it off if on. Use before payloads that type mixed-case strings.","DISABLE_CAPS\nSTRINGLN all lowercase guaranteed"],
- ["TOGGLE_KEY <caps|num|scroll> <timeoutMs> <RUN|SKIP>","Waits for the HUMAN to press that lock key. RUN: continue only if pressed within timeout, otherwise abort. SKIP: abort the rest of the script if pressed (cooldown escape).","TOGGLE_KEY scroll 30000 RUN\nSTRING user pressed scroll lock in time\n# ... rest runs only after the press"],
+ ["TRIGGER_KEY <caps|num|scroll> <timeoutMs> <RUN|SKIP>","Waits for the HUMAN to press that lock key. RUN: continue only if pressed within timeout, otherwise abort. SKIP: abort the rest of the script if pressed (cooldown escape).","TRIGGER_KEY scroll 30000 RUN\nSTRING user pressed scroll lock in time\n# ... rest runs only after the press"],
  ["SELF_DESTRUCT","Wipes EVERYTHING including firmware. Recovery only by re-flash. Absolute last resort.","SELF_DESTRUCT"],
  ["LOG <message>","Write a message to the encrypted device log (Status page).","LOG payload finished cleanly"],
  ["USB_STORAGE <enable|disable>","Expose the SD card as a USB drive alongside HID so scripts can move files. Re-enumerates USB on change.","USB_STORAGE enable\nDELAY 3000"],
