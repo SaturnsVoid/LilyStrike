@@ -36,12 +36,14 @@
 #include "util.h"
 #include "spoof.h"
 #include <Preferences.h>
+#include "power.h"
 #include "detect_os.h"
 #include "sys.h"
 #include "msc.h"
 #include "evilap.h"
 #include "version.h"
 #include <Preferences.h>
+#include "power.h"
 #include <mbedtls/base64.h>
 #include <esp_system.h>
 #include <esp32-hal.h>
@@ -436,6 +438,47 @@ static void hMscSet() {
     json(200, "{\"ok\":true,\"note\":\"applies on next boot/plug-in\"}");
 }
 
+// ---- System config: power mode / MAC spoof / tunnel (Step 4) ------------------
+static void hSysGet() {
+    requireAuth(); if (!isAuthed()) return;
+    Preferences p; p.begin("mac", true);
+    uint8_t macMode = p.getUChar("mode", 0);
+    String macCustom = p.getString("custom", "");
+    p.end();
+    Preferences t; t.begin("tunnel", true);
+    String j = String("{\"powerMode\":") + (int)power::mode() +
+      ",\"macMode\":" + macMode +
+      ",\"macCustom\":\"" + macCustom + "\"" +
+      ",\"tunnelEnabled\":" + (t.getBool("on", false)?"true":"false") +
+      ",\"tunnelUrl\":\"" + t.getString("url", "") + "\"" +
+      ",\"tunnelToken\":\"" + t.getString("token", "") + "\"}";
+    t.end();
+    json(200, j);
+}
+static void hSysSet() {
+    requireAuth(); if (!isAuthed()) return;
+    String body = server.arg("plain"), v;
+
+    long pm = extractJsonNum(body, "powerMode", -1);
+    if (pm >= 0 && pm <= 2) { power::set((power::Mode)pm); power::apply(); }
+
+    long mm = extractJsonNum(body, "macMode", -1);
+    if (mm >= 0 && mm <= 2) {
+        Preferences p; p.begin("mac", false); p.putUChar("mode", (uint8_t)mm); p.end();
+    }
+    if (extractJsonStr(body, "macCustom", v)) {
+        Preferences p; p.begin("mac", false); p.putString("custom", v); p.end();
+    }
+    Preferences t; t.begin("tunnel", false);
+    if (body.indexOf("\"tunnelEnabled\":true") >= 0)  t.putBool("on", true);
+    if (body.indexOf("\"tunnelEnabled\":false") >= 0) t.putBool("on", false);
+    if (extractJsonStr(body, "tunnelUrl", v))   t.putString("url", v);
+    if (extractJsonStr(body, "tunnelToken", v)) t.putString("token", v);
+    t.end();
+    logLine("web: system config updated");
+    json(200, "{\"ok\":true,\"note\":\"MAC changes apply at next boot\"}");
+}
+
 // ---- EULA acceptance (one-time gate on first login) ---------------------------
 static void hEulaGet() {
     Preferences p; p.begin("pcfg", true);
@@ -758,6 +801,8 @@ bool begin() {
     server.on("/api/evilap/html", HTTP_POST, hEvilHtmlSet);
     server.on("/api/msc", HTTP_GET, hMscGet);
     server.on("/api/msc", HTTP_POST, hMscSet);
+    server.on("/api/sys", HTTP_GET, hSysGet);
+    server.on("/api/sys", HTTP_POST, hSysSet);
     server.on("/api/eula", HTTP_GET, hEulaGet);
     server.on("/api/eula", HTTP_POST, hEulaSet);
     server.on("/api/selfdestruct", HTTP_POST, hSelfDestruct);

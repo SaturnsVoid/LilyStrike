@@ -25,6 +25,8 @@
 #include "spoof.h"
 #include "evilap.h"
 #include "version.h"
+#include "power.h"
+#include <Preferences.h>
 #include "tusb.h"   // tud_connected(): true once a host configures the device
 #include <SD_MMC.h>
 
@@ -54,6 +56,29 @@ static void plugInTask(void* pv) {
     delete ctx;
     s_chainTask = nullptr;
     vTaskDelete(nullptr);
+}
+
+// Apply MAC spoof per mode: 0=hardware default, 1=random per boot,
+// 2=custom from NVS. Must run after WiFi.mode() and before softAP.
+static void applyMacSpoof() {
+    Preferences p; p.begin("mac", true);
+    uint8_t mode = p.getUChar("mode", 0);
+    String custom = p.getString("custom", "");
+    p.end();
+    if (mode == 0) return;
+    uint8_t mac[6];
+    if (mode == 1) {
+        uint8_t r[6]; esp_fill_random(r, 6);
+        memcpy(mac, r, 6);
+        mac[0] = (mac[0] & 0xFC) | 0x02;   // locally-administered, unicast
+    } else if (mode == 2) {
+        if (custom.length() != 17) { logLine("MAC: bad custom format"); return; }
+        for (int i = 0; i < 6; i++)
+            mac[i] = (uint8_t)strtol(custom.substring(i*3, i*3+2).c_str(), nullptr, 16);
+    } else return;
+    WiFi.macAddress(mac);              // STA
+    WiFi.softAPmacAddress(mac);        // AP (both look identical to victim)
+    logLine("MAC spoofed: " + WiFi.macAddress());
 }
 
 void setup() {
@@ -91,6 +116,8 @@ void setup() {
     g_state.usbHostPresent = tud_connected();
 
     web::begin();
+    power::load(); power::apply();      // CPU clock + TX power
+    applyMacSpoof();
 
     if (cfg.ledOnBoot) { RGB p = {0x80, 0x00, 0xC0}; hw::ledSet(p); }   // purple
 }
@@ -117,6 +144,8 @@ void loop() {
             cfg.ifaceTempOff = false;              // re-enable just this boot
             configSaveInterfaceFlags();
             web::begin();
+    power::load(); power::apply();      // CPU clock + TX power
+    applyMacSpoof();
             logLine("btn: interface re-enabled");
             btnDownAt = 0xFFFFFFFF - 2000;         // don't retrigger
         }
