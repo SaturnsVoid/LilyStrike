@@ -104,25 +104,16 @@ async function checkEula() {
   try {
     const e = await api("/api/eula");
     if (e.agreed) return;
+    // NOTE: no scroll-gating - ticking the checkbox IS the agreement.
+    // Scroll detection proved unreliable across mobile browsers.
     await modal(`<h3>Before you begin</h3>
       <div class="eula-text" id="eulaBox">${esc(EULA_TEXT)}</div>
-      <label style="margin-top:12px"><input type="checkbox" id="eulaChk" disabled>
+      <label style="margin-top:12px"><input type="checkbox" id="eulaChk">
         I have read and agree to the terms above</label>
       <div class="row-end"><button class="primary" id="eulaBtn" disabled
         onclick="window._eulaGo()">Agree &amp; Continue</button></div>`);
-    const box = $("#eulaBox"), chk = $("#eulaChk"), btn = $("#eulaBtn");
-    const unlock = () => {
-      if (!chk.disabled) return;
-      chk.disabled = false;
-      chk.onchange = () => btn.disabled = !chk.checked;
-      btn.disabled = !chk.checked;
-    };
-    box.addEventListener("scroll", () => {
-      if (box.scrollTop + box.clientHeight >= box.scrollHeight - 24) unlock();
-    });
-    // fallback for touch/odd browsers: any interaction + 1.5s also unlocks
-    box.addEventListener("touchmove", () => setTimeout(unlock, 1500), {passive:true});
-    box.addEventListener("wheel", () => setTimeout(unlock, 1500), {passive:true});
+    const chk = $("#eulaChk"), btn = $("#eulaBtn");
+    chk.onchange = () => btn.disabled = !chk.checked;
     window._eulaGo = async () => {
       await jpost("/api/eula", {agreed:true});
       $("#modalHost").innerHTML = "";
