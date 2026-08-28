@@ -576,6 +576,35 @@ async function refreshLocks(){
   }catch(e){}
 }
 
+/* ============================= WIFI SCAN VIEW ============================ */
+async function wifiscanView(){
+  view.innerHTML=`<div class="panel"><h2>${icon("wifi")} WiFi Scanner</h2>
+   <p class="muted">Recon for IF_SSID targeting and CONNECT_AP. Uses AP+STA mode so your management AP stays up. Scan takes ~3 seconds.</p>
+   <button class="primary" onclick="doScan()">Scan now</button>
+   <span class="muted" style="margin-left:10px;font-size:12px" id="scanInfo"></span>
+   <table id="scanTable" style="margin-top:12px"></table></div>`;
+  doScan();   // auto-scan on open
+}
+async function doScan(){
+  $("#scanInfo").textContent="scanning...";
+  $("#scanTable").innerHTML="";
+  try{
+    const list=await api("/api/wifiscan");
+    list.sort((a,b)=>b.rssi-a.rssi);
+    $("#scanInfo").textContent=list.length+" network(s)";
+    $("#scanTable").innerHTML="<tr><th>SSID</th><th>Signal</th><th>Ch</th><th>Security</th></tr>"+
+      list.map(n=>{
+        const bars=n.rssi>-55?4:n.rssi>-67?3:n.rssi>-75?2:1;
+        const sec=n.hidden?"hidden":n.secure?"Secured":"Open";
+        return `<tr><td>${esc(n.ssid)}</td>
+          <td>${"&#9679;".repeat(bars)}${"&#9675;".repeat(4-bars)} <span class="muted">${n.rssi} dBm</span></td>
+          <td>${n.ch}</td>
+          <td>${n.secure?"<span class='badge run'>Secured</span>":"<span class='badge sb'>Open</span>"}</td></tr>`;
+      }).join("") || `<tr><td colspan="4" class="muted">No networks found</td></tr>`;
+  }catch(e){ $("#scanInfo").textContent="scan failed"; }
+}
+
+
 /* ============================= EVILAP VIEW ============================= */
 let evilTimer=null, TPLS=["Generic WiFi","Apple","Google"];
 function evilapView(){
