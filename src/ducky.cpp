@@ -535,6 +535,55 @@ RunResult run(const String& scriptText, const String& name) {
             }
         }
         else if (cmd.equalsIgnoreCase("HUMAN_TYPE"))    { humanType(substValues(args)); }
+        else if (cmd.equalsIgnoreCase("DISABLE_CAPS"))  {
+            // Detect host caps state and turn it off if on.
+            if (detectos::capsOn()) {
+                kb.press(KEY_CAPS_LOCK); delay(20); kb.release(KEY_CAPS_LOCK);
+                delay(150);
+                logLine("[script:" + name + "] DISABLE_CAPS: caps was on - disabled");
+            } else {
+                logLine("[script:" + name + "] DISABLE_CAPS: caps already off");
+            }
+        }
+        else if (cmd.equalsIgnoreCase("TOGGLE_KEY"))    {
+            // TOGGLE_KEY <caps|num|scroll> <timeoutMs> <RUN|SKIP>
+            // Waits for the HUMAN to press the chosen lock key (LED report
+            // changes state). Branch on whether it happened:
+            //   RUN  = continue if pressed (abort script if timeout)
+            //   SKIP = skip the rest of the script if pressed... actually
+            // inverted for usefulness: RUN waits for press then continues;
+            // on timeout with RUN -> abort. SKIP = abort only if pressed.
+            int sp2 = args.indexOf(' ');
+            if (sp2 < 0) { res.error += "TOGGLE_KEY: lock timeout RUN|SKIP "; break; }
+            String lock = args.substring(0, sp2); lock.trim(); lock.toLowerCase();
+            String rest = args.substring(sp2+1); rest.trim();
+            int sp3 = rest.indexOf(' ');
+            uint32_t timeoutMs = constrain((long)rest.substring(0, sp3<0?rest.length():sp3).toInt(), 100, 3600000);
+            String mode = (sp3<0) ? "RUN" : rest.substring(sp3+1); mode.trim(); mode.toUpperCase();
+            if (mode != "RUN" && mode != "SKIP") mode = "RUN";
+            logLine("[script:" + name + "] TOGGLE_KEY " + lock + " waiting " + timeoutMs + "ms (" + mode + ")");
+            // wait for ANY state change of the chosen lock (host-side press)
+            bool before = (lock=="num") ? detectos::numOn() :
+                          (lock=="scroll") ? detectos::scrollOn() : detectos::capsOn();
+            uint32_t t0 = millis();
+            bool pressed = false;
+            while (millis() - t0 < timeoutMs) {
+                if (g_stopRequested) { res.ok=false; res.error="stopped"; break; }
+                bool now = (lock=="num") ? detectos::numOn() :
+                           (lock=="scroll") ? detectos::scrollOn() : detectos::capsOn();
+                if (now != before) { pressed = true; break; }
+                delay(40);
+            }
+            if (mode == "RUN" && !pressed) {
+                res.ok = false; res.error = "TOGGLE_KEY timeout";
+                logLine("[script:" + name + "] TOGGLE_KEY: timeout - aborting");
+            } else if (mode == "SKIP" && pressed) {
+                logLine("[script:" + name + "] TOGGLE_KEY: pressed - skipping rest");
+                break;   // stop executing further lines, report finished
+            } else {
+                logLine("[script:" + name + "] TOGGLE_KEY: " + (pressed?"pressed":"timeout(skip)"));
+            }
+        }
         else if (cmd.equalsIgnoreCase("VAR"))           {
             // VAR name value... - value may contain value-commands ($ vars too)
             int sp2 = args.indexOf(' ');

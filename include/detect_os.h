@@ -28,6 +28,10 @@ HostOS detect();
 HostOS lastResult();
 void initHook();                // register LED-event callback (call at boot)
 String lockState();             // "CAPS+NUM", "SCROLL", "" ...
+bool capsOn(); bool numOn(); bool scrollOn();   // live host lock states
+// Block until the named lock ("caps"|"num"|"scroll") is ON (waitOn=true) or
+// OFF, up to timeoutMs. Returns true if the state was reached.
+bool waitLock(const String& lock, bool waitOn, uint32_t timeoutMs);
 String nameOf(HostOS os);       // "Windows", "Linux", ...
 bool matches(HostOS a, const String& lowerName);   // "windows" etc.
 

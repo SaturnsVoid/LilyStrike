@@ -71,6 +71,33 @@ String lockState() {
     return s.length() ? s.substring(1) : "";
 }
 
+bool capsOn()   { return capsSt; }
+bool numOn()    { return numChecked && numSt; }
+bool scrollOn() { return scrollSt; }
+
+// Requires initHook() to have run (registered at boot). NOTE: LED reports
+// only arrive when the HOST changes a lock - if nothing has happened yet,
+// states are "unknown until first report"; waitLock treats never-reported
+// locks as reachable only after any report (numChecked tracks num; for
+// caps/scroll we optimistically allow wait since toggles themselves
+// generate reports).
+bool waitLock(const String& lock, bool waitOn, uint32_t timeoutMs) {
+    uint32_t t0 = millis();
+    // Kick a report: toggling the lock ourselves guarantees fresh state.
+    uint8_t key = (lock == "num") ? KEY_NUM_LOCK :
+                  (lock == "scroll") ? KEY_SCROLL_LOCK : KEY_CAPS_LOCK;
+    ducky::kb.press(key); delay(20); ducky::kb.release(key);
+    delay(50);
+    bool want = waitOn ? true : false;
+    // If our toggle produced the target state we're done already.
+    while (millis() - t0 < timeoutMs) {
+        bool cur = (lock=="num") ? numOn() : (lock=="scroll") ? scrollOn() : capsOn();
+        if (cur == want) return true;
+        delay(50);
+    }
+    return false;
+}
+
 HostOS detect() {
     static bool evtHooked = false;
     if (!evtHooked) { ducky::kb.onEvent(onUsbEvent); evtHooked = true; }
