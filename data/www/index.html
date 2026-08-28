@@ -1,27 +1,33 @@
 <!DOCTYPE html>
-<!-- index.html - main SPA shell. All rendering lives in app.js. -->
-<html lang="en"><head><meta charset="utf-8">
+<!-- LilyStrike UI shell -->
+<html lang="en" data-theme="dark"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ProjectCodename</title>
-<!-- v=7: bump to force clients past cached css/js after UI changes -->
-<link rel="stylesheet" href="/style.css?v=20">
+<title>LilyStrike</title>
+<link rel="stylesheet" href="/style.css?v=22">
 </head><body>
 <div id="app">
-  <nav>
-    <h1>&#9889; ProjectCodename</h1>
-    <a href="#tools" class="active">Tools</a>
-    <a href="#files">Files</a>
-    <a href="#control">Control</a>
-    <a href="#evilap">EvilAP</a>
-    <a href="#reference">Reference</a>
-    <a href="#status">Status</a>
-    <a href="#settings">Settings</a>
-    <a href="#" id="logout">Logout</a>
-  </nav>
+  <aside id="sidebar">
+    <div id="brand">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+        <path d="M13 2 4.5 13.5H11L9.5 22 19.5 9.5H12.5L13 2Z"
+          fill="currentColor" stroke="currentColor" stroke-width="1"
+          style="color:#a855f7"/>
+      </svg>
+      <div>
+        <div class="bname">Lily<span>Strike</span></div>
+        <span class="bver" id="brandVer"></span>
+      </div>
+    </div>
+    <nav id="nav"></nav>
+    <footer id="footVer" style="display:flex;justify-content:space-between;align-items:center">
+      <span></span>
+      <a href="#" id="logout" style="color:var(--muted);font-size:12px">Logout</a>
+    </footer>
+  </aside>
   <main id="view"></main>
 </div>
-<!-- modal + toast hosts (populated by app.js) -->
+<button id="themeBtn" title="Toggle theme"></button>
 <div id="modalHost"></div>
 <div id="toastHost"></div>
-<script src="/app.js?v=20"></script>
+<script src="/app.js?v=22"></script>
 </body></html>

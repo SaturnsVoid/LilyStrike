@@ -40,6 +40,8 @@
 #include "sys.h"
 #include "msc.h"
 #include "evilap.h"
+#include "version.h"
+#include <Preferences.h>
 #include <mbedtls/base64.h>
 #include <esp_system.h>
 #include <esp32-hal.h>
@@ -114,6 +116,7 @@ static void hStatus() {
          ",\"detectedOS\":\"" + g_state.detectedOS + "\"" +
          ",\"lockKeys\":\"" + detectos::lockState() + "\"" +
          ",\"scriptSince\":" + String((uint32_t)g_state.scriptStateSince) +
+         ",\"fw\":\"" FW_VERSION "\",\"fwName\":\"" FW_NAME "\"" +
          "}";
     json(200, s);
 }
@@ -281,7 +284,7 @@ static void hAutostartSet() {
     if (!extractJsonArr(server.arg("plain"), "names", names)) return jsonErr(400, "bad request");
     s_autostartCount = 0;
     for (auto& n : names) {
-        if (s_autostartCount >= 8) break;
+        if (s_autostartCount >= 5) break;   // product limit: 5 autostart slots
         strlcpy(s_autostart[s_autostartCount++].name, sanitizeName(n).c_str(), 64);
     }
     bool ok = true;   // track SD write result so failures aren't silent
@@ -431,6 +434,24 @@ static void hMscSet() {
     if (st || st2) msc::setStorageEnabled(st);
     logLine("web: msc settings updated");
     json(200, "{\"ok\":true,\"note\":\"applies on next boot/plug-in\"}");
+}
+
+// ---- EULA acceptance (one-time gate on first login) ---------------------------
+static void hEulaGet() {
+    Preferences p; p.begin("pcfg", true);
+    bool agreed = p.getBool("eulaOk", false);
+    p.end();
+    json(200, String("{\"agreed\":") + (agreed?"true":"false") + "}");
+}
+static void hEulaSet() {
+    requireAuth(); if (!isAuthed()) return;
+    if (server.arg("plain").indexOf("\"agreed\":true") < 0)
+        return jsonErr(400, "must agree");
+    Preferences p; p.begin("pcfg", false);
+    p.putBool("eulaOk", true);
+    p.end();
+    logLine("web: EULA accepted");
+    json(200, "{\"ok\":true}");
 }
 
 // ---- Self destruct -----------------------------------------------------------
@@ -737,6 +758,8 @@ bool begin() {
     server.on("/api/evilap/html", HTTP_POST, hEvilHtmlSet);
     server.on("/api/msc", HTTP_GET, hMscGet);
     server.on("/api/msc", HTTP_POST, hMscSet);
+    server.on("/api/eula", HTTP_GET, hEulaGet);
+    server.on("/api/eula", HTTP_POST, hEulaSet);
     server.on("/api/selfdestruct", HTTP_POST, hSelfDestruct);
     server.on("/api/hid/key", HTTP_POST, hHidKey);
     server.on("/api/hid/mods", HTTP_POST, hHidMods);

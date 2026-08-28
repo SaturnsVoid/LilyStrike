@@ -1,13 +1,13 @@
 // ============================================================================
-// app.js - SPA for the device web UI
-// ----------------------------------------------------------------------------
-// Views: tools (BadUSB editor) / files (browser) / status / settings.
-// All popups are in-page (modal system + toasts) - no alert/confirm/prompt.
-// Text is normalised to LF everywhere so Windows/Linux/Mac all behave the same.
+// LilyStrike UI - SPA (Tools / Files / Live Control / EvilAP / Reference /
+// Status / Settings). Dark+light themes, IDE-style editor, expandable docs.
+// All popups are in-page; text normalised to LF everywhere.
 // ============================================================================
 "use strict";
 const $ = s => document.querySelector(s);
 const view = $("#view");
+
+/* ------------------------------ API helpers ------------------------------ */
 async function api(path, opts = {}) {
   const r = await fetch(path, opts);
   if (r.status === 401) { location.href = "/login.html"; throw new Error("auth"); }
@@ -17,168 +17,326 @@ async function api(path, opts = {}) {
 const jpost = (p, body) => api(p, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
-/* ===================== TOASTS + MODALS (no native popups) ================= */
+/* --------------------------------- icons --------------------------------- */
+const ICONS = {
+  tools:'<path d="M13 2 4.5 13.5H11L9.5 22 19.5 9.5H12.5L13 2Z" fill="currentColor"/>',
+  folder:'<path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6Z" fill="currentColor"/>',
+  file:'<path d="M6 2h8l4 4v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z" fill="currentColor"/>',
+  keyboard:'<rect x="2" y="6" width="20" height="12" rx="2" fill="currentColor"/><rect x="5" y="9" width="2" height="2" fill="#fff"/><rect x="9" y="9" width="2" height="2" fill="#fff"/><rect x="13" y="9" width="2" height="2" fill="#fff"/><rect x="17" y="9" width="2" height="2" fill="#fff"/><rect x="7" y="13" width="10" height="2" fill="#fff"/>',
+  wifi:'<path d="M12 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm-4.9-6.1a7 7 0 0 1 9.8 0l-1.8 1.8a4.5 4.5 0 0 0-6.2 0l-1.8-1.8ZM3.7 10.4a12 12 0 0 1 16.6 0l-1.8 1.8a9.5 9.5 0 0 0-13 0l-1.8-1.8Z" fill="currentColor"/>',
+  book:'<path d="M4 4a2 2 0 0 1 2-2h13v18H6a2 2 0 0 0-2 2V4Z" fill="currentColor"/><path d="M6 17h13v2H6z" fill="#fff" opacity=".4"/>',
+  gauge:'<path d="M12 4a8 8 0 0 1 8 8h-3a5 5 0 0 0-10 0H4a8 8 0 0 1 8-8Zm1.4 6.6 3-3 1.4 1.4-3 3a2 2 0 1 1-1.4-1.4Z" fill="currentColor"/>',
+  gear:'<path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm9 4-2 1 .3 2.1-1.8 1.8-2.1-.3-1 1.8-2.1.4-1.3 1.7-2.6.1L9.4 20l-2.1-.4-1-1.8-2.1.3-1.8-1.8.3-2.1-2-1v-2.4l2-1-.3-2.1L4.2 5.9l2.1.3 1-1.8 2.1-.4L10.7 2.3l2.6-.1 1.3 1.7 2.1-.4 1 1.8 2.1-.3 1.8 1.8-.3 2.1 2 1V12Z" fill="currentColor"/>',
+  bolt:'<path d="M13 2 4.5 13.5H11L9.5 22 19.5 9.5H12.5L13 2Z" fill="currentColor"/>',
+  script:'<path d="M6 2h8l4 4v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z" fill="currentColor"/><text x="8" y="17" font-size="9" fill="#fff" font-family="monospace">ds</text>',
+};
+const icon = (n,s=16) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none">${ICONS[n]||ICONS.file}</svg>`;
+
+/* ----------------------------- toast + modals ----------------------------- */
 function toast(msg, kind="ok") {
   const el = document.createElement("div");
-  el.className = "toast " + kind;
-  el.textContent = msg;
+  el.className = "toast " + kind; el.textContent = msg;
   $("#toastHost").appendChild(el);
-  setTimeout(() => { el.classList.add("show"); }, 10);
+  setTimeout(() => el.classList.add("show"), 10);
   setTimeout(() => { el.classList.remove("show"); setTimeout(()=>el.remove(), 400); }, 3000);
 }
-// confirmModal(msg) -> Promise<bool>; promptModal(title,value)->Promise<string|null>
 function modal(html) {
   return new Promise(resolve => {
-    const host = $("#modalHost");
-    host.innerHTML = `<div class="overlay"><div class="modal">${html}</div></div>`;
-    const close = v => { host.innerHTML = ""; resolve(v); };
-    window._closeModal = close;
+    $("#modalHost").innerHTML = `<div class="overlay"><div class="modal">${html}</div></div>`;
+    window._closeModal = v => { $("#modalHost").innerHTML = ""; resolve(v); };
   });
 }
-const confirmModal = msg => modal(`<p>${esc(msg)}</p>
+const confirmModal = msg => modal(`<h3>Confirm</h3><p>${esc(msg)}</p>
   <div class="row-end"><button class="danger" onclick="_closeModal(true)">Confirm</button>
   <button onclick="_closeModal(false)">Cancel</button></div>`);
 const promptModal = (title, value="") => modal(`<label>${esc(title)}
   <input id="mInput" value="${esc(value)}"></label>
-  <div class="row-end"><button onclick="_closeModal($('#mInput').value)">Save</button>
+  <div class="row-end"><button class="primary" onclick="_closeModal($('#mInput').value)">Save</button>
   <button onclick="_closeModal(null)">Cancel</button></div>`);
 
+/* --------------------------------- theme --------------------------------- */
+function initTheme() {
+  const saved = localStorage.getItem("ls-theme") || "dark";
+  document.documentElement.dataset.theme = saved;
+  $("#themeBtn").innerHTML = saved==="dark"
+    ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="5"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4" stroke="currentColor" stroke-width="2"/></svg>'
+    : '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>';
+}
+$("#themeBtn").onclick = () => {
+  const cur = document.documentElement.dataset.theme;
+  localStorage.setItem("ls-theme", cur==="dark"?"light":"dark");
+  initTheme();
+};
+
+/* --------------------------------- EULA --------------------------------- */
+const EULA_TEXT =
+`LILYSTRIKE END USER LICENSE & RESPONSIBILITY AGREEMENT
+
+This device runs penetration-testing firmware intended SOLELY for
+authorized security assessments on systems you own or have explicit
+written permission to test.
+
+By continuing you acknowledge and agree that:
+
+1. AUTHORIZED USE ONLY. You will only use this device on networks,
+   computers and systems that you own or have express, prior
+   authorization to test (e.g. signed scope authorization, lab
+   equipment, CTF environments).
+
+2. NO WARRANTY. This firmware is provided "as is" without warranty
+   of any kind. The authors and contributors accept NO LIABILITY
+   for any damage, data loss, or legal consequences arising from
+   its use or misuse.
+
+3. YOUR RESPONSIBILITY. Unauthorized access to computer systems is
+   a crime in most jurisdictions (e.g. CFAA, Computer Misuse Act).
+   You are solely responsible for complying with all applicable
+   local, state and federal laws.
+
+4. NO ILLICIT USE. The device will not be used to access, damage,
+   disrupt or exfiltrate data from systems without authorization.
+
+If you do not agree, discontinue use of this device immediately.
+`;
+
+async function checkEula() {
+  try {
+    const e = await api("/api/eula");
+    if (e.agreed) return;
+    await modal(`<h3>Before you begin</h3>
+      <div class="eula-text" id="eulaBox">${esc(EULA_TEXT)}</div>
+      <label style="margin-top:12px"><input type="checkbox" id="eulaChk" disabled>
+        I have read and agree to the terms above</label>
+      <div class="row-end"><button class="primary" id="eulaBtn" disabled
+        onclick="window._eulaGo()">Agree &amp; Continue</button></div>`);
+    const box = $("#eulaBox"), chk = $("#eulaChk"), btn = $("#eulaBtn");
+    box.onscroll = () => {
+      if (box.scrollTop + box.clientHeight >= box.scrollHeight - 8) {
+        chk.disabled = false;
+        chk.onchange = () => btn.disabled = !chk.checked;
+      }
+    };
+    window._eulaGo = async () => {
+      await jpost("/api/eula", {agreed:true});
+      $("#modalHost").innerHTML = "";
+      toast("Welcome to LilyStrike");
+    };
+  } catch(e) {}
+}
+
 /* ============================== TOOLS VIEW ============================== */
+let curScript = "";
 function toolsView() {
   view.innerHTML = `
-  <div class="panel"><h2>BadUSB &mdash; DuckyScript Editor</h2>
-    <div style="display:flex;gap:8px;margin-bottom:8px">
-      <select id="scriptList" style="width:auto"></select>
-      <button class="small" onclick="loadScript()">Load</button>
-      <button class="small danger" onclick="delScript()">Delete</button>
-      <span style="flex:1"></span>
-      <button class="small" onclick="newScript()">New</button>
-      <button class="small" onclick="saveScript()">Save</button>
-      <button class="small ok" id="runBtn" onclick="runScript()">&#9654; Run</button>
-      <button class="small danger" id="stopBtn" onclick="api('/api/stop',{method:'POST'})" style="display:none">&#9632; Stop</button>
+  <div class="panel">
+    <h2>${icon("bolt")} BadUSB &mdash; Script Studio</h2>
+    <div class="ide">
+      <div class="script-list" id="scriptList">
+        <div class="sl-head">Scripts <button class="small" onclick="newScript()">+</button></div>
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+          <button class="small" onclick="saveScript()">${icon("file",13)} Save</button>
+          <button class="small danger" onclick="delScript()">Delete</button>
+          <span style="flex:1"></span>
+          <button class="small ok primary" id="runBtn" onclick="runScript()">&#9654; Run</button>
+          <button class="small danger" id="stopBtn" onclick="api('/api/stop',{method:'POST'})"
+            style="display:none">&#9632; Stop</button>
+        </div>
+        <div class="editor-wrap">
+          <pre id="gutter">1</pre>
+          <div class="editor-stack">
+            <pre id="hl"></pre>
+            <textarea id="code" spellcheck="false"
+              placeholder="Type DuckyScript here..."></textarea>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <input id="scriptName" placeholder="filename.ds" style="max-width:220px">
+        </div>
+      </div>
     </div>
-    <div class="editor-wrap">
-      <pre id="gutter">1</pre>
-      <textarea id="code" spellcheck="false"
-        placeholder="Type DuckyScript here...&#10;e.g.&#10;DELAY 1000&#10;GUI r&#10;STRING notepad&#10;ENTER"></textarea>
-    </div>
-    <label style="margin-top:8px">Save as filename (.ds)
-      <input id="scriptName" placeholder="payload.ds" style="max-width:240px">
-    </label>
   </div>
 
-  <div class="panel"><h2>Autostart Scripts (run in order on plug-in)</h2>
-    <ul id="autoList" class="muted"></ul>
-    <div style="display:flex;gap:8px">
+  <div class="panel"><h2>${icon("bolt")} Autostart Queue <span class="muted" style="font-size:12px">(max 5, runs in order on plug-in)</span></h2>
+    <div id="autoList"></div>
+    <div style="display:flex;gap:8px;margin-top:8px">
       <select id="autoPick" style="width:auto"></select>
-      <button class="small" onclick="addAuto()">Add to queue</button>
-      <button class="small" onclick="clearAuto()">Clear</button>
+      <button class="small" onclick="addAuto()">Add</button>
+      <button class="small danger" onclick="clearAuto()">Clear all</button>
     </div>
   </div>`;
-  // Normalise CRLF -> LF and wire up editor events once per render.
   const code = CODE();
   code.value = code.value.replace(/\r\n?/g, "\n");
-  code.addEventListener("input", syncGutter);
-  code.addEventListener("scroll", ()=>{ $("#gutter").scrollTop=code.scrollTop; });
-  syncGutter();
+  code.addEventListener("input", () => { highlight(); syncScroll(); });
+  code.addEventListener("scroll", syncScroll);
+  highlight(); syncScroll();
   refreshScripts();
+  refreshScriptFiles();
 }
 
-/* -------- editor helpers -------- */
-// NOTE(cursor): the syntax-highlight overlay was removed - transparent-text
-// overlays are fragile across browsers/zoom levels and misaligned the caret.
-// Plain textarea + synced line-number gutter for Step 1; a proper editor
-// component returns in Step 5 UI polish.
+/* -------- IDE editor -------- */
 const CODE = () => $("#code");
-function syncGutter(){
-  const c=CODE(), gt=$("#gutter"); if(!c||!gt)return;
-  const n=c.value.split("\n").length;
-  let g=""; for(let i=1;i<=n;i++) g+=i+"\n";
-  gt.textContent=g; gt.scrollTop=c.scrollTop;
+const FLOW = /^(IF|ELSE|ELSE_IF|END_IF|WHILE|REPEAT)\b/i;
+const CMD = /^(REM|REM_BLOCK_START|REM_BLOCK_END|DEFAULTDELAY|DEFAULT_DELAY|DELAY|STRING|STRINGLN|ENTER|SPACE|TAB|ESCAPE|DOWNARROW|UPARROW|LEFTARROW|RIGHTARROW|BACKSPACE|DELETE|HOME|INSERT|PAGEUP|PAGEDOWN|CAPSLOCK|APP|GUI|WINDOWS|COMMAND|CTRL|CONTROL|ALT|ALTGR|SHIFT|F\d{1,2})\b/i;
+const CUSTOM = /^(DETECT_OS|LED_ON|LED_OFF|LED_BLINK|SCREEN_ON|SCREEN_OFF|SCREEN_CLR|SCREEN_TEXT|SCREEN_IMG|RANDOM_NUM|RANDOM_CHAR|HUMAN_TYPE|SSID_TRIGGER|CONNECT_AP|WIFI_CONNECTED|GET_IP|WAIT_BUTTON|JIGGLE_MOUSE|SSID_SPAM|RESET_FIRM|USB_STORAGE|SELF_DESTRUCT|LOG)\b/i;
+function highlight() {
+  const lines = CODE().value.split("\n");
+  let out = "", g = "";
+  lines.forEach((ln, i) => {
+    g += (i+1) + "\n";
+    if (/^\s*(REM|#)/i.test(ln)) { out += `<span class="tok-rem">${esc(ln)}</span>`; }
+    else {
+      let m = ln.match(FLOW);
+      if (m) out += `<span class="tok-flow">${esc(m[0])}</span>` + esc(ln.slice(m[0].length));
+      else if ((m = ln.match(CUSTOM))) out += `<span class="tok-custom">${esc(m[0])}</span>` + esc(ln.slice(m[0].length));
+      else if ((m = ln.match(CMD))) {
+        const rest = ln.slice(m[0].length);
+        out += `<span class="tok-cmd">${esc(m[0])}</span>` +
+               (/^STRING/i.test(m[0]) ? `<span class="tok-str">${esc(rest)}</span>` : esc(rest));
+      } else out += esc(ln).replace(/\b(\d+)\b/g, '<span class="tok-num">$1</span>');
+    }
+    out += "\n";
+  });
+  $("#hl").innerHTML = out + "\n";
+  $("#gutter").textContent = g;
 }
-// Poll script state: hide Run while running, hide Stop when idle.
+function syncScroll(){
+  const hl=$("#hl"), gt=$("#gutter"), c=CODE();
+  if(!hl||!c) return;
+  hl.scrollTop=c.scrollTop; hl.scrollLeft=c.scrollLeft;
+  if(gt) gt.scrollTop=c.scrollTop;
+}
+/* poll run state for Run/Stop buttons */
 setInterval(async()=>{
   const rb=$("#runBtn"), sb=$("#stopBtn"); if(!rb||!sb)return;
   try{ const s=await api("/api/status");
     const running=(s.scriptState==="RUNNING");
-    rb.style.display=running?"none":"";
-    sb.style.display=running?"":"none";
-    if(running) sb.innerHTML="&#9632; Stop "+esc(s.scriptName);
+    rb.style.display=running?"none":""; sb.style.display=running?"":"none";
   }catch(e){}
 },2000);
 
-async function refreshScripts() {
+/* -------- script file list (sidebar) -------- */
+async function refreshScriptFiles(){
   const list = await api("/api/scripts");
-  $("#scriptList").innerHTML = list.map(s=>`<option>${esc(s.name)}</option>`).join("");
-  $("#autoPick").innerHTML  = list.map(s=>`<option>${esc(s.name)}</option>`).join("");
+  const box = $("#scriptList");
+  box.innerHTML = `<div class="sl-head">Scripts <button class="small" onclick="newScript()">+</button></div>` +
+    list.map(s=>`<button class="sfile ${s.name===curScript?"active":""}"
+      onclick="loadScript('${esc(s.name)}')">${icon("script",13)} ${esc(s.name)}</button>`).join("");
+  $("#autoPick").innerHTML = list.map(s=>`<option>${esc(s.name)}</option>`).join("");
   renderAuto();
 }
-async function loadScript(){
-  const n=$("#scriptList").value; if(!n)return;
+async function loadScript(n){
+  if (typeof n !== "string") return;
   const t = await api("/api/script?name="+encodeURIComponent(n));
-  CODE().value = String(t).replace(/\r\n?/g,"\n");   // normalise EOL cross-platform
-  $("#scriptName").value=n; syncGutter(); toast("Loaded "+n);
+  CODE().value = String(t).replace(/\r\n?/g,"\n");
+  curScript = n; $("#scriptName").value = n;
+  highlight(); syncScroll(); refreshScriptFiles();
+  toast("Loaded "+n);
 }
-function newScript(){ CODE().value=""; $("#scriptName").value=""; syncGutter(); toast("New script"); }
+function newScript(){
+  CODE().value=""; curScript=""; $("#scriptName").value="";
+  highlight(); syncScroll(); refreshScriptFiles(); toast("New script");
+}
 async function saveScript(){
-  const n=$("#scriptName").value.trim(); if(!n) return toast("Enter a filename first","err");
-  await jpost("/api/script",{name:n,text:CODE().value}); refreshScripts();
-  toast("Saved "+n);
+  let n=$("#scriptName").value.trim();
+  if(!n) return toast("Enter a filename first","err");
+  if(!n.endsWith(".ds")) n += ".ds";
+  $("#scriptName").value = n;
+  await jpost("/api/script",{name:n,text:CODE().value});
+  curScript=n; refreshScriptFiles(); toast("Saved "+n);
 }
 async function delScript(){
-  const n=$("#scriptList").value;
-  if(!n || !(await confirmModal("Delete "+n+"?")))return;
-  await api("/api/script?name="+encodeURIComponent(n),{method:"DELETE"}); refreshScripts();
-  toast("Deleted "+n);
+  const n = curScript || $("#scriptName").value.trim();
+  if(!n || !(await confirmModal("Delete "+n+"?"))) return;
+  await api("/api/script?name="+encodeURIComponent(n),{method:"DELETE"});
+  newScript(); toast("Deleted "+n);
 }
 async function runScript(){
   const text=CODE().value.replace(/\r\n?/g,"\n");
-  await jpost("/api/run", text.trim()?{text}: {name:$("#scriptList").value});
-  toast("Script started","ok");
+  await jpost("/api/run", text.trim()?{text}: {name:curScript});
+  toast("Script started");
 }
-/* -------- autostart -------- */
+
+/* -------- autostart queue (max 5, reorderable) -------- */
 let autoQ=[];
 async function renderAuto(){
-  autoQ=await api("/api/autostart");
-  $("#autoList").innerHTML=autoQ.map((n,i)=>`<li>${i+1}. ${esc(n)}
-    <button class="small" onclick="rmAuto(${i})">x</button></li>`).join("")||"<li>(none)</li>";
+  autoQ = await api("/api/autostart");
+  const box = $("#autoList"); if(!box) return;
+  box.innerHTML = autoQ.map((n,i)=>`
+    <div class="auto-item">
+      <span class="ord">${i+1}</span>
+      ${icon("script",13)}
+      <span>${esc(n)}</span>
+      <button class="small" title="Up" onclick="moveAuto(${i},-1)" ${i===0?"disabled":""}>&#9650;</button>
+      <button class="small" title="Down" onclick="moveAuto(${i},1)" ${i===autoQ.length-1?"disabled":""}>&#9660;</button>
+      <button class="small danger" title="Remove" onclick="rmAuto(${i})">&#10005;</button>
+    </div>`).join("") || `<p class="muted" style="font-size:13px">No autostart scripts. Add one below.</p>`;
 }
 async function autoSet(names){
-  const r=await jpost("/api/autostart",{names});
+  const r = await jpost("/api/autostart",{names});
   if(r && r.ok===false) toast("Save failed: "+(r.error||"SD write error"),"err");
 }
-async function addAuto(){ const n=$("#autoPick").value; if(!n)return;
-  autoQ.push(n); await autoSet(autoQ); await renderAuto(); toast("Added to autostart"); }
-async function rmAuto(i){ autoQ.splice(i,1); await autoSet(autoQ); await renderAuto(); toast("Removed"); }
-async function clearAuto(){ await autoSet([]); await renderAuto(); toast("Autostart cleared"); }
+async function moveAuto(i,d){
+  const j=i+d;
+  [autoQ[i],autoQ[j]]=[autoQ[j],autoQ[i]];
+  await autoSet(autoQ); renderAuto();
+}
+async function addAuto(){
+  if(autoQ.length>=5) return toast("Autostart queue is full (max 5)","err");
+  const n=$("#autoPick").value; if(!n)return;
+  autoQ.push(n); await autoSet(autoQ); renderAuto(); toast("Added to autostart");
+}
+async function rmAuto(i){ autoQ.splice(i,1); await autoSet(autoQ); renderAuto(); }
+async function clearAuto(){ await autoSet([]); renderAuto(); toast("Autostart cleared"); }
 
-/* ============================ FILES VIEW ================================ */
+/* ============================== FILES VIEW ============================== */
 let fbCur="/";
+function fileIcon(name,isDir){
+  if(isDir) return icon("folder");
+  if(name.endsWith(".ds")) return icon("script");
+  if(/\.(png|jpg|bmp|gif)$/i.test(name)) return icon("gauge");
+  return icon("file");
+}
 function filesView(){
-  view.innerHTML=`<div class="panel"><h2>File Browser</h2>
-    <div style="display:flex;gap:8px;margin-bottom:8px">
-      <span id="fbPath" class="muted">/</span><span style="flex:1"></span>
-      <button class="small" onclick="fbUp()">Up</button>
+  view.innerHTML=`<div class="panel"><h2>${icon("folder")} File Manager</h2>
+    <div class="crumbs" id="crumbs"></div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <button class="small" onclick="fbUp()">&#8592; Up</button>
+      <span style="flex:1"></span>
       <input type="file" id="upFile" style="display:none" onchange="upload()">
-      <button class="small" onclick="$('#upFile').click()">Upload here</button>
+      <button class="small" onclick="$('#upFile').click()">${icon("file",12)} Upload</button>
       <button class="small" onclick="fbNew()">New file</button>
       <button class="small" onclick="fbNewDir()">New folder</button>
     </div>
     <table id="fbTable"></table></div>`;
   fbGo("/");
 }
+function fbCrumbs(p){
+  const parts = p.split("/").filter(x=>x);
+  let html = `<a href="#" onclick="fbGo('/');return false">${icon("folder",14)} root</a>`;
+  let acc="";
+  for(const part of parts){ acc+="/"+part;
+    html += ` <span class="sep">/</span> <a href="#" onclick="fbGo('${esc(acc)}');return false">${esc(part)}</a>`; }
+  $("#crumbs").innerHTML = html;
+}
 async function fbGo(p){
-  fbCur=p; $("#fbPath").textContent=p;
+  fbCur = (p==="/"||!p.endsWith("/"))?p:p.slice(0,-1);
+  $("#fbPath") ; fbCrumbs(fbCur);
   try{
-    const items=await api("/api/files?path="+encodeURIComponent(p));
-    $("#fbTable").innerHTML="<tr><th>Name</th><th>Type</th><th>Size</th><th></th></tr>"+
+    const items=await api("/api/files?path="+encodeURIComponent(fbCur));
+    $("#fbTable").innerHTML="<tr><th>Name</th><th>Size</th><th style='width:40%'>Actions</th></tr>"+
      items.map(f=>{
-       const fp=(p==="/")?"/"+f.name:p+"/"+f.name;
-       const act=f.dir?`<a href="#" onclick="fbGo('${esc(fp)}');return false">Open</a>`
-        :`${f.name.endsWith(".ds")?`<a href="#" onclick="runSd('${esc(fp)}');return false">Run</a> | `:""}<a href="#" onclick="editSd('${esc(fp)}');return false">Edit</a>`;
-       return `<tr><td>${esc(f.name)}</td><td>${f.dir?"dir":"file"}</td><td>${f.size}</td>
-         <td>${act} | <a href="#" onclick="delFb('${esc(fp)}');return false" class="err">Del</a></td></tr>`;
-     }).join("");
+       const fp=(fbCur==="/")?"/"+f.name:fbCur+"/"+f.name;
+       const cls=f.dir?"f-dir":f.name.endsWith(".ds")?"f-ds":/\.(zip|img|bin)$/i.test(f.name)?"f-img":"f-file";
+       const act=f.dir
+         ?`<a href="#" onclick="fbGo('${esc(fp)}');return false">Open</a>`
+         :`${f.name.endsWith(".ds")?`<a href="#" onclick="runSd('${esc(fp)}');return false">Run</a> · `:""}
+           <a href="#" onclick="editSd('${esc(fp)}');return false">Edit</a> ·
+           <a href="#" onclick="delFb('${esc(fp)}');return false" class="err">Delete</a>`;
+       return `<tr class="frow ${cls}"><td>${fileIcon(f.name,f.dir)}${esc(f.name)}</td>
+         <td class="muted">${f.dir?"—":f.size+" B"}</td><td class="f-actions">${act}</td></tr>`;
+     }).join("") || `<tr><td colspan="3" class="muted">Empty folder</td></tr>`;
   }catch(e){ toast("Cannot open "+p,"err"); }
 }
 function fbUp(){ fbGo(fbCur.replace(/\/[^/]*$/,"")||"/"); }
@@ -187,22 +345,27 @@ async function runSd(p){ await jpost("/api/run",{name:p.split("/").pop()}); toas
 async function upload(){
   const f=$("#upFile").files[0]; if(!f)return;
   try{
-    const b64=btoa(await f.text());          // small files only (Step-1 scope)
+    const b64=btoa(await f.text());
     const r=await fetch("/api/filebin?path="+encodeURIComponent(fbCur+"/"+f.name),
-      {method:"POST",headers:{"Content-Type":"application/json"},
-       body:JSON.stringify({b64})});
+      {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({b64})});
     if(r.ok){toast("Uploaded "+f.name); fbGo(fbCur);}
     else toast("Upload failed ("+r.status+")","err");
   }catch(e){ toast("Upload failed","err"); }
 }
-// Edit any file in an in-page modal. .ds files come back decrypted from API.
 async function editSd(p){
-  const t = await fetch("/api/file?path="+encodeURIComponent(p)).then(r=>r.ok?r.text():null)
-                 .catch(()=>null);
+  const t = await fetch("/api/file?path="+encodeURIComponent(p)).then(r=>r.ok?r.text():null).catch(()=>null);
   if(t===null) return toast("Could not read "+p,"err");
+  // .ds files open in the Script Studio instead
+  if(p.endsWith(".ds")){
+    location.hash="#tools";
+    setTimeout(()=>{ CODE().value=String(t).replace(/\r\n?/g,"\n");
+      curScript=p.split("/").pop(); $("#scriptName").value=curScript;
+      highlight(); syncScroll(); },60);
+    return;
+  }
   await modal(`<label>Edit ${esc(p)}
-    <textarea id="mEdit" rows="16" style="font-family:'Courier New',monospace">${esc(String(t).replace(/\r\n?/g,"\n"))}</textarea></label>
-    <div class="row-end"><button onclick="_closeModal($('#mEdit').value)">Save</button>
+    <textarea id="mEdit" rows="14" class="mono">${esc(String(t).replace(/\r\n?/g,"\n"))}</textarea></label>
+    <div class="row-end"><button class="primary" onclick="_closeModal($('#mEdit').value)">Save</button>
     <button onclick="_closeModal(null)">Cancel</button></div>`)
     .then(async content=>{
       if(content===null)return;
@@ -221,322 +384,7 @@ async function fbNewDir(){
   fbGo(fbCur);
 }
 
-/* ============================ STATUS VIEW ============================= */
-let statusTimer=null;
-function statusView(){
-  view.innerHTML=`<div class="panel"><h2>System Status</h2><table id="statT"></table></div>
-  <div class="panel"><h2>Debug Log</h2><button class="small" onclick="refreshLog()">Refresh</button>
-    <pre id="logBox" style="max-height:300px;overflow:auto;background:#0d0d16;padding:8px;border-radius:5px"></pre></div>
-  <div class="panel"><h2>Danger Zone</h2>
-    <button class="danger" onclick="doReboot()">Reboot</button>
-    <button class="danger" onclick="doReset()">Reset Firmware Settings</button>
-    <button class="danger" onclick="doFormat()">Format Micro-SD</button>
-    <p class="err">Self destruct wipes settings, web files and the SD card, then reboots. Recovery = re-flash.</p>
-    <button class="danger" onclick="doDestroy()">SELF DESTRUCT</button>
-  </div>`;
-  refreshStatus(); statusTimer=setInterval(refreshStatus,2000); refreshLog();
-}
-async function doReboot(){ if(await confirmModal("Reboot device?")) await jpost("/api/reboot",{}); toast("Rebooting..."); }
-async function doReset(){ if(await confirmModal("Factory reset ALL settings?")) await jpost("/api/reset",{}); toast("Settings reset"); }
-async function doDestroy(){
-  if(!(await confirmModal("SELF DESTRUCT? Wipes ALL settings, web files and SD contents!")))return;
-  if(!(await confirmModal("FINAL WARNING: this cannot be undone. Type-confirm to proceed.")))return;
-  await fetch("/api/selfdestruct?confirm=DESTROY",{method:"POST"});
-  toast("Self destruct executed","err");
-}
-async function doFormat(){ if(await confirmModal("FORMAT SD CARD? ALL FILES WILL BE LOST!"))
-  if(await confirmModal("Are you REALLY sure? This cannot be undone.")) await jpost("/api/format-sd",{}); toast("SD wiped"); }
-async function refreshStatus(){
-  const s=await api("/api/status");
-  const up=Math.floor(s.uptime), hh=Math.floor(up/3600), mm=Math.floor(up%3600/60), ss=up%60;
-  const st=s.scriptState==="RUNNING"?["run","Running"]:s.scriptState==="FINISHED"?["fin","Finished"]:["sb","Standby"];
-  $("#statT").innerHTML=`
-   <tr><td>Free RAM</td><td>${(s.heap/1024).toFixed(0)} KB (min ${(s.heapMin/1024)|0} KB)</td></tr>
-   <tr><td>CPU</td><td>${s.cpuMhz} MHz</td></tr>
-   <tr><td>Uptime</td><td>${hh}h ${mm}m ${ss}s</td></tr>
-   <tr><td>Flash</td><td>${(s.flashSize/1048576)|0} MB</td></tr>
-   <tr><td>SD Free</td><td>${s.sdTotal?((s.sdFree/1048576).toFixed(1)+" / "+(s.sdTotal/1048576).toFixed(1)+" MB"):"not detected"}</td></tr>
-   <tr><td>Connection</td><td>${s.usbHost?"Plugged into computer":"Power only"}${s.detectedOS&&s.detectedOS!=="Unknown"?" &mdash; "+esc(s.detectedOS):""}</td></tr>
-   <tr><td>WiFi AP</td><td>${s.ip} (${s.wifiClients} client(s))</td></tr>
-   <tr><td>Script</td><td><span class="badge ${st[0]}">${st[1]}</span> ${esc(s.scriptName)}</td></tr>`;
-}
-async function refreshLog(){ const b=$("#logBox"); if(b) b.textContent=await api("/api/log"); }
-
-/* =========================== SETTINGS VIEW ============================ */
-function settingsView(){
-  view.innerHTML=`<div class="panel"><h2>WiFi Access Point</h2>
-    <p class="muted">Leave a box empty to keep the current value.</p>
-    <label>SSID<input id="ssid"></label><label>Password<input id="wifiPass" type="password"></label>
-    <label><input type="checkbox" id="wifiHidden" style="width:auto"> Hidden SSID (must join manually - won't broadcast)</label></div>
-  <div class="panel"><h2>Login Credentials</h2>
-    <label>Username<input id="user"></label><label>Password<input id="webPass" type="password"></label></div>
-  <div class="panel"><h2>Encryption Password</h2>
-    <p class="muted">Used to encrypt scripts/logs on the SD card. Changing it makes old files unreadable.</p>
-    <label>Password<input id="encPassword" type="password"></label></div>
-  <div class="panel"><h2>Display &amp; LED Defaults</h2>
-    <label><input type="checkbox" id="screenOnBoot" style="width:auto"> Screen on at boot</label>
-    <label><input type="checkbox" id="ledOnBoot" style="width:auto"> LED on at boot</label>
-    <label>Backlight brightness <input type="number" id="brightness" min="0" max="255" value="128" style="max-width:120px"></label>
-    <label><input type="checkbox" id="autoDetectOS" style="width:auto"> Auto-detect OS when plugged into a computer (cached until unplug)</label></div>
-  <div class="panel"><h2>USB Storage &amp; Stealth Drive</h2>
-    <p class="muted">Expose the Micro-SD as a USB drive alongside HID, or boot as a read-only "innocent" stick. Changes apply on next plug-in. Hold BOOT at power-on to bypass stealth.</p>
-    <label>False Thumbdrive mode
-      <select id="thumbMode" onchange="saveMsc()">
-        <option value="0">Off</option>
-        <option value="1">First Load - always boots as thumbdrive</option>
-        <option value="2">Second Load - normal once, then always thumbdrive</option>
-      </select></label>
-    <label><input type="checkbox" id="usbStorage" style="width:auto" onchange="saveMsc()"> USB_STORAGE: expose SD card (read-write) alongside HID</label>
-  </div>
-  <div class="panel"><h2>USB Identity (Spoofing)</h2>
-    <p class="muted">What the host sees when the dongle enumerates. Applies on next boot/plug-in.</p>
-    <label>Preset<select id="spoofPreset" onchange="applyPreset()"><option value="">- custom -</option></select></label>
-    <label>VID (hex)<input id="spoofVid" placeholder="1E7D" style="max-width:140px"></label>
-    <label>PID (hex)<input id="spoofPid" placeholder="2E7D" style="max-width:140px"></label>
-    <label>Vendor<input id="spoofVendor"></label>
-    <label>Product<input id="spoofProduct"></label>
-    <label>Serial (empty = random 12-digit each change)<input id="spoofSerial"></label>
-    <label><input type="checkbox" id="spoofRandBoot" style="width:auto"> New random identity on EVERY boot (unchecked = use saved identity)</label>
-    <button class="small" onclick="saveSpoof()">Save Identity</button>
-    <button class="small" onclick="randomSpoof()">Randomize</button>
-  </div>
-  <div class="panel"><h2>Interface</h2>
-    <label><input type="checkbox" id="tempOff" style="width:auto"> Temporarily disable web interface (press BOOT button to re-enable)</label>
-    <p class="err">Permanent mode disables the interface until the firmware is re-flashed!</p>
-    <button class="danger" onclick="permDisable()">Enable Permanent Disable</button></div>
-  <button onclick="saveSettings()">Save Settings</button>`;
-  loadSettingsState();
-}
-// Populate the form with the currently saved values (secrets stay empty).
-async function loadSettingsState(){
-  try{
-    const s=await api("/api/settings");
-    $("#ssid").value=s.ssid||""; $("#user").value=s.user||"";
-    $("#screenOnBoot").checked=!!s.screenOnBoot;
-    $("#ledOnBoot").checked=!!s.ledOnBoot;
-    $("#brightness").value=s.brightness??128;
-    api("/api/msc").then(m=>{
-      $("#thumbMode").value=String(m.thumb);
-      $("#usbStorage").checked=!!m.storage;
-    }).catch(()=>{});
-    $("#wifiHidden").checked=!!s.wifiHidden;
-    $("#autoDetectOS").checked=!!s.autoDetectOS;
-    if(s.permOff) toast("Interface is PERMANENTLY disabled (takes effect on reboot)","err");
-  }catch(e){ /* leave defaults */ }
-  loadSpoof();
-}
-// Thumb/USB_STORAGE save immediately on change (separate NVS group).
-async function saveMsc(){
-  await jpost("/api/msc",{thumb:+$("#thumbMode").value, storage:$("#usbStorage").checked});
-  toast("USB storage settings saved");
-}
-async function loadSpoof(){
-  try{
-    const sp=await api("/api/spoof");
-    $("#spoofVid").value=sp.vid; $("#spoofPid").value=sp.pid;
-    $("#spoofVendor").value=sp.vendor; $("#spoofProduct").value=sp.product;
-    $("#spoofSerial").value=sp.serial;
-    $("#spoofRandBoot").checked=!!sp.randomPerBoot;
-    $("#spoofPreset").innerHTML='<option value="">- custom -</option>'+
-      sp.presets.map((p,i)=>`<option value="${i}">${esc(p.vendor)} - ${esc(p.product)}</option>`).join("");
-    window._presets=sp.presets;
-  }catch(e){}
-}
-function applyPreset(){
-  const i=$("#spoofPreset").value; if(i==="")return;
-  const p=window._presets[+i];
-  $("#spoofVid").value=p.vid; $("#spoofPid").value=p.pid;
-  $("#spoofVendor").value=p.vendor; $("#spoofProduct").value=p.product;
-}
-async function saveSpoof(){
-  await jpost("/api/spoof",{vid:$("#spoofVid").value,pid:$("#spoofPid").value,
-    vendor:$("#spoofVendor").value,product:$("#spoofProduct").value,serial:$("#spoofSerial").value});
-  await jpost("/api/spoof",{randomPerBoot:$("#spoofRandBoot").checked});
-  toast("Identity saved - applies on next boot/plug-in");
-}
-async function randomSpoof(){
-  await jpost("/api/spoof",{randomize:true});
-  loadSpoof(); toast("Random identity saved");
-}
-async function saveSettings(){
-  // Only send filled boxes - server treats empty strings as "unchanged".
-  const b={};
-  for(const [id,key] of [["ssid","ssid"],["wifiPass","wifiPass"],["user","user"],
-                          ["webPass","webPass"],["encPassword","encPassword"]]){
-    const v=$(("#"+id)).value; if(v.length) b[key]=v;
-  }
-  b.wifiHidden=$("#wifiHidden").checked;
-  b.screenOnBoot=$("#screenOnBoot").checked;
-  b.ledOnBoot=$("#ledOnBoot").checked;
-  b.brightness=+$("#brightness").value;
-  b.autoDetectOS=$("#autoDetectOS").checked;
-  b.tempOff=$("#tempOff").checked;
-  await jpost("/api/settings", b);
-  toast("Settings saved. Some changes apply after reboot.");
-}
-async function permDisable(){
-  if(!(await confirmModal("PERMANENTLY disable web interface?\nOnly a firmware re-flash can undo this!")))return;
-  await jpost("/api/settings",{permOff:true});
-  toast("Interface will stay off after next reboot.","err");
-}
-
-/* =========================== REFERENCE VIEW ============================ */
-// Grouped, detailed command documentation + loadable sample programs.
-const CMD_DOCS = [
- ["Core DuckyScript", [
-  ["DELAY <ms>","Pause for ms milliseconds (max 60000)."],
-  ["DEFAULTDELAY <ms>","Delay inserted after every command line. Set once at the top of the script."],
-  ["STRING <text>","Types text exactly (5ms/char pacing)."],
-  ["STRINGLN <text>","Types text then presses Enter."],
-  ["GUI / CTRL / ALT / SHIFT / ALTGR combos","Hold modifiers and tap keys: `GUI r`, `CTRL-SHIFT ESC`. Single keys can be used alone: `ENTER`, `F5`."],
-  ["Special keys","ENTER SPACE TAB ESC ESCAPE BACKSPACE DELETE DEL HOME END INSERT PAGEUP PAGEDOWN CAPSLOCK APP UP DOWN LEFT RIGHT (+ARROW variants)"],
-  ["REPEAT <n>","Re-executes the previous command line n times."],
-  ["REM <text> / REM_BLOCK_START ... REM_BLOCK_END","Comments."],
- ]],
- ["Logic & Detection", [
-  ["DETECT_OS","Fingerprints the host OS via the keyboard-LED side-channel (~10 seconds; toggles your lock keys and restores them). Result is cached for IF_OS and shown on the Status page."],
-  ["IF_OS <windows|linux|macos|ios|android|chromeos|unknown>","Runs block if detected OS matches. Requires DETECT_OS to have run first (otherwise compares against Unknown)."],
-  ["IF_SSID <name>","True if a WiFi AP with that SSID is currently visible (scans ~2s)."],
-  ["IF <expr>","Compare value commands: `IF GET_IP = 192.168.0.1`, `IF WIFI_CONNECTED != false`. Bare `IF DETECT_OS` is truthy when non-empty. Whole-token value commands (GET_IP, DETECT_OS, WIFI_CONNECTED, RANDOM_NUM min max, RANDOM_CHAR len) can also be embedded in STRING/STRINGLN/HUMAN_TYPE payloads and are replaced with their live values."],
-  ["IF_WIFI","True if the device is connected to a network as client (after CONNECT_AP)."],
-  ["ELSE_IF <value>","Alternative branch; inherits the parent condition type (OS vs SSID). Evaluated lazily."],
-  ["ELSE","Fallback branch. All blocks end with END_IF; nesting is supported."],
- ]],
- ["Device Hardware", [
-  ["LED_ON #RRGGBB","Light the status LED with a hex color, e.g. `LED_ON #00FF00`."],
-  ["LED_OFF","Turn the LED off."],
-  ["LED_BLINK <times> #RRGGBB","Blink n times (250ms on/off). Default: 5x red."],
-  ["SCREEN_ON / SCREEN_OFF","Backlight on/off."],
-  ["SCREEN_TEXT <text> [#RRGGBB]","Show text on the screen, optional color."],
-  ["SCREEN_CLR","Clear the display."],
-  ["WAIT_BUTTON [secs] [CONTINUE|STOP]","Wait for the BOOT button. On timeout either continue or stop the script. Defaults: 30 CONTINUE."],
- ]],
- ["Input & Randomness", [
-  ["HUMAN_TYPE <text>","Types at ~40 wpm with random jitter - looks human, beats timing analysis."],
-  ["RANDOM_NUM <min> <max>","Types a random number in range."],
-  ["RANDOM_CHAR <len>","Types len random alphanumeric characters (good for fake passwords)."],
-  ["JIGGLE_MOUSE <secs>","Move the mouse +/-1px every half second so the host never sleeps. Subtle by design."],
- ]],
- ["Network & System", [
-  ["GET_IP","Types the device IP address (station IP if connected, else our own AP IP)."],
-  ["CONNECT_AP <ssid> [password]","Join a WiFi network as client while keeping the config AP alive. Logs result."],
-  ["RESET_FIRM","Factory-reset all settings and reboot. DESTRUCTIVE - use with care."],
-  ["LOG <message>","Write a message to the encrypted device log (visible on Status page)."],
- ]],
-];
-
-const SAMPLES = [
- ["Hello Notepad", "Opens Notepad on Windows and types a message.",
-`REM Basic Windows payload
-DELAY 1000
-GUI r
-DELAY 500
-STRING notepad
-ENTER
-DELAY 1000
-STRING Hello from your T-Dongle-S3!
-`],
- ["OS-Aware Greeting", "Detects the OS and opens the right run dialog.",
-`DETECT_OS
-IF_OS windows
-  DELAY 1000
-  GUI r
-  STRING notepad
-  ENTER
-ELSE_IF macos
-  DELAY 1000
-  GUI SPACE
-  STRING textedit
-  ENTER
-ELSE_IF linux
-  ALT F2
-  STRING gedit
-  ENTER
-ELSE
-  LOG unknown host OS
-END_IF
-`],
- ["Stealth Check", "Waits for you to press BOOT before firing.",
-`REM Wait up to 60s for button press; abort if nobody does
-WAIT_BUTTON 60 STOP
-DELAY 1000
-LED_BLINK 3 #00FF00
-GUI r
-STRING notepad
-ENTER
-DELAY 800
-STRING Button-triggered!
-`],
- ["Human Typing Demo", "Random password + human-like typing.",
-`DELAY 1000
-STRING username: admin
-ENTER
-STRING password: 
-RANDOM_CHAR 12
-ENTER
-DELAY 500
-HUMAN_TYPE This sentence was typed like a human at about forty words per minute.
-`],
- ["Network Report", "Joins WiFi and reports the device IP into Notepad.",
-`DELAY 1000
-GUI r
-STRING cmd
-ENTER
-DELAY 1500
-CONNECT_AP MyHomeNetwork MyPassword
-IF_WIFI
-  STRING Device IP:
-  GET_IP
-  ENTER
-ELSE
-  STRING Could not connect to WiFi
-  ENTER
-END_IF
-`],
- ["Light Show", "Pure hardware demo - no host needed.",
-`LED_BLINK 3 #FF0000
-LED_ON #00FF00
-DELAY 1000
-LED_OFF
-SCREEN_TEXT Dongle alive! #00FF00
-DELAY 2000
-SCREEN_CLR
-SCREEN_OFF
-`],
-];
-
-function refView(){
-  let html = `<div class="panel"><h2>DuckyScript Command Reference</h2>
-    <p class="muted">Custom commands marked in <b style="color:var(--accent)">bold groups</b> are extensions beyond standard DuckyScript v3.</p>`;
-  for(const [group, cmds] of CMD_DOCS){
-    html += `<h3 style="color:var(--accent);margin-bottom:4px">${group}</h3><table>`;
-    for(const [cmd, desc] of cmds)
-      html += `<tr><td style="width:40%"><b>${esc(cmd)}</b></td><td class="muted">${esc(desc)}</td></tr>`;
-    html += `</table>`;
-  }
-  html += `</div><div class="panel"><h2>Sample Programs</h2>
-    <p class="muted">Click Load to open a sample in the editor.</p><table id="samples">`;
-  for(const [title,desc,code] of SAMPLES)
-    html += `<tr><td><b>${esc(title)}</b><br><span class="muted" style="font-size:13px">${esc(desc)}</span></td>
-      <td style="width:auto"><button class="small" onclick="loadSample('${esc(title)}')">Load</button></td></tr>`;
-  html += `</table></div>`;
-  view.innerHTML = html;
-}
-function loadSample(title){
-  const s = SAMPLES.find(x=>x[0]===title); if(!s) return;
-  location.hash = "#tools";
-  // toolsView renders on hashchange; wait one tick then fill the editor
-  setTimeout(()=>{
-    CODE().value = s[2].replace(/\r\n?/g,"\n");
-    $("#scriptName").value = title.toLowerCase().replace(/[^a-z0-9]+/g,"_")+".ds";
-    syncGutter();
-    toast("Sample loaded: "+title);
-  }, 50);
-}
-
-/* ============================ CONTROL VIEW ============================= */
-// On-screen keyboard (sticky modifiers) + mouse pad. Deltas stream at most
-// every 60ms; buttons and scroll are click-based.
+/* =========================== LIVE CONTROL VIEW =========================== */
 let ctrlTimer=null, heldMods=new Set();
 const KEY_ROWS=[["`","1","2","3","4","5","6","7","8","9","0","-","=","BACKSPACE"],
  ["TAB","q","w","e","r","t","y","u","i","o","p","[","]","\\"],
@@ -544,6 +392,7 @@ const KEY_ROWS=[["`","1","2","3","4","5","6","7","8","9","0","-","=","BACKSPACE"
  ["SHIFT","z","x","c","v","b","n","m",",",".","/","UP"],
  ["CTRL","GUI","ALT","SPACE","ESC","LEFT","DOWN","RIGHT"]];
 const MOD_NAMES=["CTRL","GUI","ALT","SHIFT","ALTGR"];
+let mouseMode="pad";
 
 function controlView(){
   clearInterval(ctrlTimer);
@@ -551,33 +400,50 @@ function controlView(){
   for(const row of KEY_ROWS){
     kbHtml+='<div class="kbrow">';
     for(const k of row){
-      const wide=(k.length>1)?' style="min-width:'+(k==="SPACE"?120:52)+'px"':"";
-      kbHtml+=`<button class="key small" data-key="${esc(k)}"${wide}>${k==="SPACE"?"":k}</button>`;
+      const wide=(k.length>1)?` style="min-width:${k==="SPACE"?110:48}px;font-size:10px"`:"";
+      kbHtml+=`<button class="key" data-key="${esc(k)}"${wide}>${k==="SPACE"?"":k}</button>`;
     }
     kbHtml+='</div>';
   }
-  view.innerHTML=`<div class="panel"><h2>HID Control</h2>
-   <div style="display:flex;gap:16px;flex-wrap:wrap">
-    <div><h3>Keyboard</h3><p class="muted">Modifier buttons are sticky - click to hold, click again to release.</p>
-     <div id="mods">${MOD_NAMES.map(m=>`<button class="key small mod" data-mod="${m}">${m}</button>`).join(" ")}</div>
-     <div id="kbd" class="mt8">${kbHtml}</div></div>
-    <div><h3>Mouse</h3>
-     <div id="mousepad">move mouse here</div>
-     <div style="display:flex;gap:8px;margin-top:8px;justify-content:center">
-      <button class="small" data-btn="left">&#128073;</button>
-      <button class="small" data-btn="middle">&bull;</button>
-      <button class="small" data-btn="right">&#128072;</button>
-     </div>
-     <div style="text-align:center;margin-top:6px">
-      <button class="small" onclick="mScroll(1)">&#9650;</button>
-      scroll
-      <button class="small" onclick="mScroll(-1)">&#9660;</button>
-     </div></div>
-    <div><h3>Host Lock Keys</h3><div id="lockKeys" class="muted">(no reports yet)</div>
-     <p class="muted mt8" style="max-width:220px;font-size:13px">Updates when the host sends LED reports (toggle caps lock on the host once to see it live).</p></div>
+  view.innerHTML=`<div class="panel"><h2>${icon("keyboard")} Live Control</h2>
+   <p class="muted">Control the host computer directly. Modifier buttons are sticky.</p>
+   <div class="live-wrap">
+    <div class="live-sec">
+      <h3 style="font-size:13px;color:var(--muted)">KEYBOARD</h3>
+      <div style="display:flex;gap:4px;justify-content:center;margin-bottom:6px" id="mods">
+        ${MOD_NAMES.map(m=>`<button class="key mod" data-mod="${m}" style="min-width:52px">${m}</button>`).join("")}
+      </div>
+      <div id="kbd">${kbHtml}</div>
+    </div>
+    <div class="live-sec">
+      <h3 style="font-size:13px;color:var(--muted)">POINTER</h3>
+      <div style="text-align:center;margin-bottom:10px">
+        <button class="small" id="modePad" onclick="setMouseMode('pad')">Touchpad</button>
+        <button class="small" id="modeBall" onclick="setMouseMode('ball')">Trackball</button>
+      </div>
+      <div class="touchpad" id="pad" style="${mouseMode==="pad"?"":"display:none"}">
+        <div class="padlabel">slide to move &middot; tap corners: bottom-left = left click, bottom-right = right click</div>
+      </div>
+      <div class="trackball" id="ball" style="${mouseMode==="ball"?"":"display:none"}">
+        <div class="knob" id="knob"></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
+        <button class="key" data-btn="left" style="min-width:64px">Left</button>
+        <button class="key" data-btn="middle" style="min-width:56px">Mid</button>
+        <button class="key" data-btn="right" style="min-width:56px">Right</button>
+      </div>
+      <div style="text-align:center;margin-top:10px">
+        <button class="key" onclick="mScroll(1)">&#9650;</button>
+        <span class="muted" style="margin:0 8px">scroll</span>
+        <button class="key" onclick="mScroll(-1)">&#9660;</button>
+      </div>
+    </div>
+    <div class="live-sec" style="max-width:220px">
+      <h3 style="font-size:13px;color:var(--muted)">HOST LOCK KEYS</h3>
+      <div class="lockbox" id="lockKeys">(no reports yet)</div>
+      <p class="muted" style="font-size:11.5px;margin-top:8px">Live from host LED reports. Toggle caps lock on the host once to activate.</p>
+    </div>
    </div></div>`;
-
-  // wire keys
   document.querySelectorAll("#kbd .key").forEach(b=>{
     b.onclick=()=>api("/api/hid/key",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({key:b.dataset.key,type:"tap"})});
@@ -585,36 +451,38 @@ function controlView(){
   document.querySelectorAll("#mods .mod").forEach(b=>{
     b.onclick=()=>{ toggleMod(b.dataset.mod); b.classList.toggle("held"); };
   });
-  // mouse pad: pointer deltas
-  const pad=$("#mousepad"); let last=null;
-  pad.addEventListener("pointermove",e=>{
-    e.preventDefault();
-    if(last){ mMove(e.clientX-last.x, e.clientY-last.y); }
-    last={x:e.clientX,y:e.clientY};
-  });
-  pad.addEventListener("pointerleave",()=>last=null);
-  // mouse buttons: press/release on down/up
+  setupPad();
+  setupBall();
   document.querySelectorAll("[data-btn]").forEach(b=>{
-    const btn=b.dataset.btn;
-    b.addEventListener("pointerdown",()=>mButton(btn,true));
-    b.addEventListener("pointerup",()=>mButton(btn,false));
+    b.addEventListener("pointerdown",()=>mButton(b.dataset.btn,true));
+    b.addEventListener("pointerup",()=>mButton(b.dataset.btn,false));
   });
   refreshLocks(); ctrlTimer=setInterval(refreshLocks,2000);
+}
+function setMouseMode(m){
+  mouseMode=m;
+  $("#pad").style.display = m==="pad"?"":"none";
+  $("#ball").style.display = m==="ball"?"":"none";
+  $("#modePad").style.fontWeight = m==="pad"?"700":"400";
+  $("#modeBall").style.fontWeight = m==="ball"?"700":"400";
 }
 function toggleMod(m){
   heldMods.has(m)?heldMods.delete(m):heldMods.add(m);
   api("/api/hid/mods",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({mods:[...heldMods]})});
 }
+/* touchpad: delta streaming */
 let mQueue={dx:0,dy:0}, mT=null;
+function mFlush(){
+  mT=null;
+  if(mQueue.dx||mQueue.dy)
+    api("/api/hid/mouse",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({dx:mQueue.dx,dy:mQueue.dy})});
+  mQueue={dx:0,dy:0};
+}
 function mMove(dx,dy){
   mQueue.dx+=dx; mQueue.dy+=dy;
-  if(!mT) mT=setTimeout(()=>{ mT=null;
-    if(mQueue.dx||mQueue.dy)
-      api("/api/hid/mouse",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({dx:mQueue.dx,dy:mQueue.dy})});
-    mQueue={dx:0,dy:0};
-  },60);
+  if(!mT) mT=setTimeout(mFlush,60);
 }
 function mButton(b,down){
   api("/api/hid/mouse",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -624,10 +492,48 @@ function mScroll(n){
   api("/api/hid/mouse",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({scroll:n})});
 }
+function setupPad(){
+  const pad=$("#pad"); let last=null;
+  pad.addEventListener("pointermove",e=>{
+    e.preventDefault();
+    if(last) mMove(e.clientX-last.x, e.clientY-last.y);
+    last={x:e.clientX,y:e.clientY};
+  });
+  pad.addEventListener("pointerleave",()=>last=null);
+  pad.addEventListener("pointerdown",e=>{
+    const r=pad.getBoundingClientRect();
+    // corner tap zones = mouse clicks (laptop touchpad style)
+    if(e.clientY > r.bottom-36){
+      if(e.clientX < r.left+r.width*0.45) mButton("left",true),setTimeout(()=>mButton("left",false),60);
+      else if(e.clientX > r.right-r.width*0.45) mButton("right",true),setTimeout(()=>mButton("right",false),60);
+    }
+  });
+}
+/* trackball/joystick: knob offset -> velocity */
+let ballInt=null;
+function setupBall(){
+  const ball=$("#ball"), knob=$("#knob");
+  let dragging=false;
+  const setKnob=(x,y)=>{ knob.style.left=`calc(50% + ${x}px)`; knob.style.top=`calc(50% + ${y}px)`; };
+  const stop=()=>{ dragging=false; setKnob(0,0); if(ballInt){clearInterval(ballInt);ballInt=null;} };
+  ball.addEventListener("pointerdown",e=>{
+    dragging=true; ball.setPointerCapture(e.pointerId);
+    const r=ball.getBoundingClientRect();
+    const dx=Math.max(-55,Math.min(55,e.clientX-r.left-r.width/2));
+    const dy=Math.max(-55,Math.min(55,e.clientY-r.top-r.height/2));
+    setKnob(dx,dy);
+    if(ballInt)clearInterval(ballInt);
+    ballInt=setInterval(()=>{ mMove(Math.round(dx/10),Math.round(dy/10)); },50);
+  });
+  ball.addEventListener("pointerup",stop);
+  ball.addEventListener("pointercancel",stop);
+}
 async function refreshLocks(){
   const el=$("#lockKeys"); if(!el)return;
   try{ const s=await api("/api/status");
-    el.textContent=s.lockKeys?s.lockKeys+" active":"(none reported)";
+    const lk=s.lockKeys||"";
+    el.innerHTML=["CAPS","NUM","SCROLL"].map(k=>
+      `<span class="led ${lk.includes(k)?"on":""}"></span>${k}`).join(" &nbsp; ");
   }catch(e){}
 }
 
@@ -635,7 +541,7 @@ async function refreshLocks(){
 let evilTimer=null, TPLS=["Generic WiFi","Apple","Google"];
 function evilapView(){
   clearInterval(evilTimer);
-  view.innerHTML=`<div class="panel"><h2>EvilAP / Captive Portal</h2>
+  view.innerHTML=`<div class="panel"><h2>${icon("wifi")} EvilAP / Captive Portal</h2>
    <p class="err">Starting replaces your management AP until stopped. Stop via this page, http://portal-ip/disable, or holding BOOT ~1.5s.</p>
    <label>Portal SSID<input id="evilSsid" placeholder="Free WiFi"></label>
    <label>Template<select id="evilTpl">${TPLS.map(t=>`<option>${t}</option>`).join("")}</select></label>
@@ -643,15 +549,18 @@ function evilapView(){
      <button class="danger" id="evilStartBtn" onclick="evilStart()">Start EvilAP</button>
      <button class="small" id="evilStopBtn" style="display:none" onclick="api('/api/evilap/stop',{method:'POST'})">Stop</button>
    </div></div>
-  <div class="panel"><h2>Stats</h2><table><tr><td>Portal hits</td><td id="eHits">-</td></tr>
-   <tr><td>Credentials captured</td><td id="eCaps">- <button class="small" onclick="showCreds()">View</button> <button class="small danger" onclick="clearCreds()">Clear</button></td></tr></table>
-   <pre id="credsBox" style="display:none;margin-top:8px;background:#0d0d16;padding:8px;border-radius:5px;max-height:240px;overflow:auto"></pre></div>
+  <div class="panel"><h2>Capture Statistics</h2><table>
+   <tr><td>Portal hits</td><td id="eHits">-</td></tr>
+   <tr><td>Credentials captured</td><td id="eCaps">-
+     <button class="small" onclick="showCreds()">View</button>
+     <button class="small danger" onclick="clearCreds()">Clear</button></td></tr></table>
+   <pre id="credsBox" style="display:none;margin-top:8px;background:var(--code-bg);padding:10px;border-radius:8px;max-height:220px;overflow:auto" class="mono"></pre></div>
   <div class="panel"><h2>Custom Portal Page</h2>
    <p class="muted">Stored encrypted as /portal.html.enc on the SD card. Overrides any template.</p>
-   <textarea id="evilHtml" rows="12" style="font-family:'Courier New',monospace" placeholder="<html>...custom login page..."></textarea>
-   <div class="row-end" style="margin-top:8px">
+   <textarea id="evilHtml" rows="11" class="mono" placeholder="<html>...custom login page..."></textarea>
+   <div class="row-end">
      <button class="small" onclick="loadEvilHtml()">Load current</button>
-     <button class="small" onclick="saveEvilHtml()">Save page</button>
+     <button class="small primary" onclick="saveEvilHtml()">Save page</button>
      <button class="small danger" onclick="clearEvilHtml()">Remove custom page</button>
    </div></div>`;
   refreshEvil(); evilTimer=setInterval(refreshEvil,3000);
@@ -662,17 +571,6 @@ async function refreshEvil(){
     $("#evilStartBtn").style.display=s.running?"none":"";
     $("#evilStopBtn").style.display=s.running?"":"none";
   }catch(e){}
-}
-async function showCreds(){
-  const t=await fetch("/api/evilap/creds").then(r=>r.text());
-  const box=$("#credsBox");
-  box.style.display="block";
-  box.textContent=t.trim()||"(nothing captured yet)";
-}
-async function clearCreds(){
-  if(!(await confirmModal("Delete all captured credentials?")))return;
-  await api("/api/file?path="+encodeURIComponent("/logs/creds.enc"),{method:"DELETE"});
-  showCreds(); toast("Captured credentials cleared");
 }
 async function evilStart(){
   const ssid=$("#evilSsid").value.trim(); if(!ssid)return toast("Enter an SSID","err");
@@ -693,20 +591,382 @@ async function clearEvilHtml(){
   await jpost("/api/evilap/html",{content:""});
   $("#evilHtml").value=""; toast("Custom page removed");
 }
+async function showCreds(){
+  const t=await fetch("/api/evilap/creds").then(r=>r.text());
+  const box=$("#credsBox");
+  box.style.display="block";
+  box.textContent=t.trim()||"(nothing captured yet)";
+}
+async function clearCreds(){
+  if(!(await confirmModal("Delete all captured credentials?")))return;
+  await api("/api/file?path="+encodeURIComponent("/logs/creds.enc"),{method:"DELETE"});
+  showCreds(); toast("Captured credentials cleared");
+}
+
+/* ============================ REFERENCE VIEW ============================= */
+const REF_GROUPS=[
+["Core DuckyScript",[
+ ["DELAY <ms>","Pause for the given milliseconds (max 60000 per line). Essential before and after GUI commands so the host can react.","DELAY 1000\nGUI r\nDELAY 500\nSTRING notepad\nENTER"],
+ ["DEFAULTDELAY <ms>","A pause inserted automatically after every command line. Set it once near the top of a script instead of sprinkling DELAYs everywhere.","DEFAULTDELAY 200\nGUI r\nSTRING calc\nENTER"],
+ ["STRING <text>","Types text exactly as written (5 ms/char pacing). Value commands like GET_IP or RANDOM_CHAR 12 are evaluated and substituted when used as whole words.","STRING Hello world\nSTRING password: RANDOM_CHAR 12"],
+ ["STRINGLN <text>","Types text, then presses Enter.","STRINGLN echo done"],
+ ["Modifier combos","Hold modifiers and tap keys: GUI, CTRL, ALT, SHIFT, ALTGR. Combine in one line: `CTRL-SHIFT ESC` opens Task Manager. Also works alone: `ENTER`, `F5`.","GUI r\nCTRL-SHIFT ESC\nALT F4"],
+ ["Special keys","ENTER SPACE TAB ESC ESCAPE BACKSPACE DELETE DEL HOME END INSERT PAGEUP PAGEDOWN CAPSLOCK APP UP DOWN LEFT RIGHT (ARROW variants too).","ENTER\nTAB\nBACKSPACE"],
+ ["REPEAT <n>","Re-executes the previous command line n times. The line being repeated is the last non-REPEAT line.","STRINGLN spam\nREPEAT 5"],
+ ["REM / REM_BLOCK","Comments. REM skips one line; REM_BLOCK_START ... REM_BLOCK_END skips a whole block.","REM this line is ignored\nREM_BLOCK_START\nNothing here runs\nREM_BLOCK_END"],
+]],
+["Logic & Conditions",[
+ ["IF / ELSE_IF / ELSE / END_IF","The general conditional. Conditions compare VALUE COMMANDS (see below) against literals with = or !=, or use bare truthiness. Blocks nest, and ELSE_IF is evaluated lazily top-to-bottom.","IF GET_IP = 192.168.0.1\n  STRING we are on the home network\nELSE_IF WIFI_CONNECTED != false\n  STRING on some other network\nELSE\n  STRING offline\nEND_IF"],
+ ["IF_OS <name>","Runs the block only if the last DETECT_OS result matches: windows, linux, macos, ios, android, chromeos or unknown. Requires DETECT_OS to have run (device auto-detect can be enabled in Settings).","DETECT_OS\nIF_OS windows\n  GUI r\nELSE_IF macos\n  GUI SPACE\nEND_IF"],
+ ["IF_SSID <name>","True if a WiFi access point with that SSID is currently visible. Scans for ~2 seconds.","IF_SSID HomeNetwork\n  CONNECT_AP HomeNetwork mypassword\nEND_IF"],
+ ["IF_WIFI","True when the device is connected to a network as a client (after a successful CONNECT_AP).","CONNECT_AP Office ap-password\nIF_WIFI\n  STRING connected\nELSE\n  STRING failed\nEND_IF"],
+ ["ELSE_IF <value>","Alternative branch that INHERITS the parent condition type: inside IF_OS it compares OS names, inside IF_SSID it checks another SSID.","IF_SSID CorpWiFi\n  CONNECT_AP CorpWiFi pw1\nELSE_IF HomeWiFi\n  CONNECT_AP HomeWiFi pw2\nEND_IF"],
+ ["Value commands","Commands that produce a value usable in STRING payloads or IF conditions: GET_IP, DETECT_OS, WIFI_CONNECTED, RANDOM_NUM <min> <max>, RANDOM_CHAR <len>.","STRING IP is GET_IP\nIF RANDOM_NUM 1 10 = 7\n  STRING lucky\nEND_IF"],
+]],
+["Device Hardware",[
+ ["LED_ON #RRGGBB","Light the status LED with a hex color.","LED_ON #FF00AA"],
+ ["LED_OFF","Turn the LED off.","LED_OFF"],
+ ["LED_BLINK <times> #RRGGBB","Blink n times, 250 ms on/off. Defaults: 5x red.","LED_BLINK 3 #00FF00"],
+ ["SCREEN_ON / SCREEN_OFF","Backlight on/off.","SCREEN_ON\nDELAY 2000\nSCREEN_OFF"],
+ ["SCREEN_TEXT <text> [#RRGGBB]","Show text on the built-in screen, optional hex color.","SCREEN_TEXT Pwned #00FF00"],
+ ["SCREEN_CLR","Clear the display.","SCREEN_CLR"],
+ ["WAIT_BUTTON [secs] [CONTINUE|STOP]","Wait for the BOOT button. If timeout expires: CONTINUE (default) keeps running, STOP aborts the script.","WAIT_BUTTON 60 STOP\nSTRING nobody pressed the button in 60s"],
+]],
+["Input & Randomness",[
+ ["HUMAN_TYPE <text>","Types at ~40 wpm with random jitter - defeats keystroke-timing analysis and looks natural on screen.","HUMAN_TYPE this looks like a human typed it"],
+ ["RANDOM_NUM <min> <max>","Types a random number in range.","STRING PIN: RANDOM_NUM 1000 9999"],
+ ["RANDOM_CHAR <len>","Types len random alphanumeric characters.","STRING password: RANDOM_CHAR 16"],
+ ["JIGGLE_MOUSE <secs>","Move the mouse 1px every half second so the host never sleeps. Subtle by design.","JIGGLE_MOUSE 300"],
+]],
+["Network & System",[
+ ["GET_IP","Types the device IP (station IP if connected, else the AP IP). As a value command it can be compared in IF blocks.","IF GET_IP = 192.168.0.42\n  STRING home network\nEND_IF"],
+ ["CONNECT_AP <ssid> [password]","Join a WiFi network as a client while keeping the config AP alive. Logs the result.","CONNECT_AP MyNetwork s3cret"],
+ ["WIFI_CONNECTED","Value command: true/false depending on station state.","IF WIFI_CONNECTED = true\n  STRING online\nEND_IF"],
+ ["DETECT_OS","Fingerprint the host OS via the keyboard-LED side channel (~10 s, toggles your lock keys and restores them). Result is cached until unplug and shown on Status.","DETECT_OS\nIF_OS windows\n  GUI r\nEND_IF"],
+ ["RESET_FIRM","Factory-reset all settings and reboot. DESTRUCTIVE.","RESET_FIRM"],
+ ["SELF_DESTRUCT","Wipes EVERYTHING including firmware. Recovery only by re-flash. Absolute last resort.","SELF_DESTRUCT"],
+ ["LOG <message>","Write a message to the encrypted device log (Status page).","LOG payload finished cleanly"],
+ ["USB_STORAGE <enable|disable>","Expose the SD card as a USB drive alongside HID so scripts can move files. Re-enumerates USB on change.","USB_STORAGE enable\nDELAY 3000"],
+]],
+];
+
+function refView(){
+  let html = `<div class="panel"><h2>${icon("book")} DuckyScript Reference</h2>
+   <p class="muted">Click any command to expand its explanation and example. Samples that can be loaded straight into the editor are at the bottom.</p>`;
+  for(const [group, cmds] of REF_GROUPS){
+    html += `<div class="refgroup">${group}</div>`;
+    for(const [cmd,desc,ex] of cmds){
+      html += `<details class="refitem"><summary><span class="mono" style="color:var(--accent2)">${esc(cmd)}</span></summary>
+        <div class="refbody"><p>${esc(desc)}</p>
+        ${ex?`<pre class="example">${esc(ex)}</pre>`:""}</div></details>`;
+    }
+  }
+  html += `</div><div class="panel"><h2>${icon("script")} Sample Programs</h2>
+   <p class="muted">One click loads them into the Script Studio.</p><div id="samples"></div></div>`;
+  view.innerHTML = html;
+  const box=$("#samples");
+  for(const [title,desc,code] of SAMPLES){
+    const d=document.createElement("details");
+    d.className="refitem";
+    d.innerHTML=`<summary><span style="color:var(--accent2)">${esc(title)}</span>
+      <span class="muted" style="font-weight:400;font-size:12px">&nbsp;${esc(desc)}</span></summary>
+      <div class="refbody"><pre class="example">${esc(code)}</pre>
+      <button class="small" onclick="loadSample('${esc(title)}')">Load into editor</button></div>`;
+    box.appendChild(d);
+  }
+}
+function loadSample(title){
+  const s = SAMPLES.find(x=>x[0]===title); if(!s) return;
+  location.hash = "#tools";
+  setTimeout(()=>{
+    CODE().value = s[2].replace(/\r\n?/g,"\n");
+    $("#scriptName").value = title.toLowerCase().replace(/[^a-z0-9]+/g,"_")+".ds";
+    curScript=""; highlight(); syncScroll();
+    toast("Sample loaded: "+title);
+  }, 60);
+}
+
+/* ============================ STATUS VIEW ============================= */
+let statusTimer=null;
+function statusView(){
+  view.innerHTML=`<div class="panel"><h2>${icon("gauge")} System Status</h2><table id="statT"></table></div>
+  <div class="panel"><h2>${icon("file")} Debug Log</h2>
+    <button class="small" onclick="refreshLog()">Refresh</button>
+    <pre id="logBox" style="max-height:280px;overflow:auto;background:var(--code-bg);padding:10px;border-radius:8px;margin-top:10px" class="mono"></pre></div>
+  <div class="panel"><h2>${icon("bolt")} Danger Zone</h2>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="danger" onclick="doReboot()">Reboot</button>
+      <button class="danger" onclick="doReset()">Reset Firmware Settings</button>
+      <button class="danger" onclick="doFormat()">Wipe Micro-SD</button>
+    </div>
+    <p class="err" style="font-size:12.5px;margin:12px 0 6px">Self destruct wipes settings, web files, SD card AND the firmware itself. Recovery only by re-flashing. Last-resort failsafe.</p>
+    <button class="danger" onclick="doDestroy()">SELF DESTRUCT</button>
+  </div>`;
+  refreshStatus(); statusTimer=setInterval(refreshStatus,2000); refreshLog();
+}
+async function doReboot(){ if(await confirmModal("Reboot device?")) await jpost("/api/reboot",{}); toast("Rebooting..."); }
+async function doReset(){ if(await confirmModal("Factory reset ALL settings?")) await jpost("/api/reset",{}); toast("Settings reset"); }
+async function doFormat(){ if(await confirmModal("Wipe the SD card? ALL FILES WILL BE LOST!"))
+  if(await confirmModal("Are you REALLY sure? This cannot be undone.")) await jpost("/api/format-sd",{}); toast("SD wiped"); }
+async function doDestroy(){
+  if(!(await confirmModal("SELF DESTRUCT? Wipes ALL settings, web files, SD contents AND the firmware!")))return;
+  if(!(await confirmModal("FINAL WARNING: recovery requires a full re-flash. Continue?")))return;
+  await fetch("/api/selfdestruct?confirm=DESTROY",{method:"POST"});
+  toast("Self destruct executed","err");
+}
+async function refreshStatus(){
+  const s=await api("/api/status");
+  const up=Math.floor(s.uptime), hh=Math.floor(up/3600), mm=Math.floor(up%3600/60), ss=up%60;
+  const st=s.scriptState==="RUNNING"?["run","Running"]:s.scriptState==="FINISHED"?["fin","Finished"]:["sb","Standby"];
+  $("#statT").innerHTML=`
+   <tr><td>Firmware</td><td>${esc(s.fwName||"")} <span class="muted">v${esc(s.fw||"")}</span></td></tr>
+   <tr><td>Free RAM</td><td>${(s.heap/1024).toFixed(0)} KB <span class="muted">(min ${(s.heapMin/1024)|0} KB)</span></td></tr>
+   <tr><td>CPU</td><td>${s.cpuMhz} MHz</td></tr>
+   <tr><td>Uptime</td><td>${hh}h ${mm}m ${ss}s</td></tr>
+   <tr><td>SD Free</td><td>${s.sdTotal?((s.sdFree/1048576).toFixed(1)+" / "+(s.sdTotal/1048576).toFixed(1)+" MB"):"not detected"}</td></tr>
+   <tr><td>Connection</td><td>${s.usbHost?"Plugged into computer":"Power only"}${s.detectedOS&&s.detectedOS!=="Unknown"?" — "+esc(s.detectedOS):""}</td></tr>
+   <tr><td>WiFi AP</td><td>${s.ip} (${s.wifiClients} client(s))</td></tr>
+   <tr><td>Script</td><td><span class="badge ${st[0]}">${st[1]}</span> ${esc(s.scriptName)}</td></tr>`;
+}
+async function refreshLog(){ const b=$("#logBox"); if(b) b.textContent=await api("/api/log"); }
+
+/* =========================== SETTINGS VIEW ============================ */
+function settingsView(){
+  view.innerHTML=`
+  <div class="setgrid">
+  <div class="setcard"><h3>${icon("wifi")} WiFi Access Point</h3>
+    <p class="desc">The management network this device broadcasts for browser access. Applies after reboot.</p>
+    <label>SSID<input id="ssid"></label>
+    <label>Password<input id="wifiPass" type="password"></label>
+    <label><input type="checkbox" id="wifiHidden" style="width:auto"> Hidden SSID — won't broadcast; join manually</label>
+  </div>
+  <div class="setcard"><h3>${icon("gauge")} Login Credentials</h3>
+    <p class="desc">Web interface login. Leave a box empty to keep the current value.</p>
+    <label>Username<input id="user"></label>
+    <label>Password<input id="webPass" type="password"></label>
+  </div>
+  <div class="setcard"><h3>${icon("file")} Encryption Password</h3>
+    <p class="desc">Encrypts scripts, logs and captured data on the SD card (AES-256-GCM). Changing it makes previously stored files unreadable.</p>
+    <label>Password<input id="encPassword" type="password"></label>
+  </div>
+  <div class="setcard"><h3>${icon("bolt")} Hardware Defaults</h3>
+    <p class="desc">Boot behavior of the screen and LED. Stealth by default: everything off.</p>
+    <label><input type="checkbox" id="screenOnBoot" style="width:auto"> Screen on at boot</label>
+    <label><input type="checkbox" id="ledOnBoot" style="width:auto"> LED on at boot</label>
+    <label>Backlight brightness (0–255)
+      <input type="number" id="brightness" min="0" max="255" value="128"></label>
+    <label><input type="checkbox" id="autoDetectOS" style="width:auto"> Auto-detect OS on plug-in (cached until unplug)</label>
+  </div>
+  <div class="setcard"><h3>${icon("keyboard")} USB Identity (Spoofing)</h3>
+    <p class="desc">What the host sees at enumeration. Applies on next plug-in.</p>
+    <label>Preset<select id="spoofPreset" onchange="applyPreset()"><option value="">— custom —</option></select></label>
+    <label>VID (hex)<input id="spoofVid" style="max-width:140px"></label>
+    <label>PID (hex)<input id="spoofPid" style="max-width:140px"></label>
+    <label>Vendor<input id="spoofVendor"></label>
+    <label>Product<input id="spoofProduct"></label>
+    <label>Serial (empty = random)<input id="spoofSerial"></label>
+    <label><input type="checkbox" id="spoofRandBoot" style="width:auto"> New random identity on every boot</label>
+    <div style="display:flex;gap:8px">
+      <button class="small primary" onclick="saveSpoof()">Save Identity</button>
+      <button class="small" onclick="randomSpoof()">Randomize now</button>
+    </div>
+  </div>
+  <div class="setcard"><h3>${icon("folder")} USB Storage &amp; Stealth Drive</h3>
+    <p class="desc">Expose the Micro-SD as a USB drive, or boot as a read-only "innocent" stick backed by an isolated disk image containing only disk.zip. Recovery token: put UNLOCK.txt on the card root.</p>
+    <label>False Thumbdrive mode
+      <select id="thumbMode" onchange="saveMsc()">
+        <option value="0">Off</option>
+        <option value="1">First Load — always boots as thumbdrive</option>
+        <option value="2">Second Load — normal once, then always thumbdrive</option>
+      </select></label>
+    <label><input type="checkbox" id="usbStorage" style="width:auto" onchange="saveMsc()">
+      USB_STORAGE — full card read-write alongside HID</label>
+  </div>
+  <div class="setcard"><h3>${icon("gear")} Interface Availability</h3>
+    <p class="desc">Temporarily disable the web interface (hold BOOT 1.5 s on next boot to re-enable). Permanent mode requires a firmware re-flash to undo.</p>
+    <label><input type="checkbox" id="tempOff" style="width:auto"> Temporarily disable web interface</label>
+    <p class="err" style="font-size:12px">Permanent disable is irreversible without a re-flash!</p>
+    <button class="danger" onclick="permDisable()">Enable Permanent Disable</button>
+  </div>
+  </div>
+  <div style="margin-top:16px"><button class="primary" onclick="saveSettings()">Save Settings</button></div>`;
+  loadSettingsState();
+}
+async function loadSettingsState(){
+  try{
+    const s=await api("/api/settings");
+    $("#ssid").value=s.ssid||""; $("#user").value=s.user||"";
+    $("#wifiHidden").checked=!!s.wifiHidden;
+    $("#screenOnBoot").checked=!!s.screenOnBoot;
+    $("#ledOnBoot").checked=!!s.ledOnBoot;
+    $("#brightness").value=s.brightness??128;
+    $("#autoDetectOS").checked=!!s.autoDetectOS;
+    if(s.permOff) toast("Interface is PERMANENTLY disabled (on reboot)","err");
+  }catch(e){}
+  api("/api/msc").then(m=>{
+    $("#thumbMode").value=String(m.thumb);
+    $("#usbStorage").checked=!!m.storage;
+  }).catch(()=>{});
+  loadSpoof();
+}
+async function saveMsc(){
+  await jpost("/api/msc",{thumb:+$("#thumbMode").value, storage:$("#usbStorage").checked});
+  toast("USB storage settings saved");
+}
+async function loadSpoof(){
+  try{
+    const sp=await api("/api/spoof");
+    $("#spoofVid").value=sp.vid; $("#spoofPid").value=sp.pid;
+    $("#spoofVendor").value=sp.vendor; $("#spoofProduct").value=sp.product;
+    $("#spoofSerial").value=sp.serial;
+    $("#spoofRandBoot").checked=!!sp.randomPerBoot;
+    $("#spoofPreset").innerHTML='<option value="">— custom —</option>'+
+      sp.presets.map((p,i)=>`<option value="${i}">${esc(p.vendor)} — ${esc(p.product)}</option>`).join("");
+    window._presets=sp.presets;
+  }catch(e){}
+}
+function applyPreset(){
+  const i=$("#spoofPreset").value; if(i==="")return;
+  const p=window._presets[+i];
+  $("#spoofVid").value=p.vid; $("#spoofPid").value=p.pid;
+  $("#spoofVendor").value=p.vendor; $("#spoofProduct").value=p.product;
+}
+async function saveSpoof(){
+  await jpost("/api/spoof",{vid:$("#spoofVid").value,pid:$("#spoofPid").value,
+    vendor:$("#spoofVendor").value,product:$("#spoofProduct").value,serial:$("#spoofSerial").value});
+  await jpost("/api/spoof",{randomPerBoot:$("#spoofRandBoot").checked});
+  toast("Identity saved — applies on next boot/plug-in");
+}
+async function randomSpoof(){
+  await jpost("/api/spoof",{randomize:true});
+  loadSpoof(); toast("Random identity saved");
+}
+async function saveSettings(){
+  const b={};
+  for(const [id,key] of [["ssid","ssid"],["wifiPass","wifiPass"],["user","user"],
+                          ["webPass","webPass"],["encPassword","encPassword"]]){
+    const v=$("#"+id).value; if(v.length) b[key]=v;
+  }
+  b.wifiHidden=$("#wifiHidden").checked;
+  b.screenOnBoot=$("#screenOnBoot").checked;
+  b.ledOnBoot=$("#ledOnBoot").checked;
+  b.brightness=+$("#brightness").value;
+  b.autoDetectOS=$("#autoDetectOS").checked;
+  b.tempOff=$("#tempOff").checked;
+  await jpost("/api/settings", b);
+  toast("Settings saved. Some changes apply after reboot.");
+}
+async function permDisable(){
+  if(!(await confirmModal("PERMANENTLY disable web interface?\nOnly a firmware re-flash can undo this!")))return;
+  await jpost("/api/settings",{permOff:true});
+  toast("Interface will stay off after next reboot.","err");
+}
+
+/* ============================== SAMPLES ============================== */
+const SAMPLES=[
+ ["Hello Notepad","Opens Notepad on Windows and types a message.",
+`REM Basic Windows payload
+DELAY 1000
+GUI r
+DELAY 500
+STRING notepad
+ENTER
+DELAY 1000
+STRING Hello from LilyStrike!`],
+ ["OS-Aware Greeting","Different run dialog per operating system.",
+`DETECT_OS
+IF_OS windows
+  DELAY 1000
+  GUI r
+  STRING notepad
+  ENTER
+ELSE_IF macos
+  DELAY 1000
+  GUI SPACE
+  STRING textedit
+  ENTER
+ELSE_IF linux
+  ALT F2
+  STRING gedit
+  ENTER
+ELSE
+  LOG unknown host OS
+END_IF`],
+ ["Stealth Check","Waits for you to press BOOT before firing.",
+`REM Wait up to 60s for button press; abort if nobody does
+WAIT_BUTTON 60 STOP
+DELAY 1000
+LED_BLINK 3 #00FF00
+GUI r
+STRING notepad
+ENTER
+DELAY 800
+STRING Button-triggered!`],
+ ["Human Typing Demo","Random password + human-like typing.",
+`DELAY 1000
+STRING username: admin
+ENTER
+STRING password: RANDOM_CHAR 12
+ENTER
+DELAY 500
+HUMAN_TYPE This sentence was typed like a human at about forty words per minute.`],
+ ["Network Report","Joins WiFi and reports the device IP.",
+`DELAY 1000
+GUI r
+STRING cmd
+ENTER
+DELAY 1500
+CONNECT_AP MyHomeNetwork MyPassword
+IF_WIFI
+  STRING Device IP: GET_IP
+  ENTER
+ELSE
+  STRING Could not connect to WiFi
+  ENTER
+END_IF`],
+ ["Light Show","Pure hardware demo - no host needed.",
+`LED_BLINK 3 #FF0000
+LED_ON #00FF00
+DELAY 1000
+LED_OFF
+SCREEN_TEXT LilyStrike ready #00FF00
+DELAY 2000
+SCREEN_CLR
+SCREEN_OFF`],
+];
 
 /* ============================== ROUTER ================================ */
+const NAV=[
+ ["tools","Tools","bolt"],["files","Files","folder"],
+ ["control","Live Control","keyboard"],["evilap","EvilAP","wifi"],
+ ["reference","Reference","book"],["status","Status","gauge"],
+ ["settings","Settings","gear"],
+];
+function buildNav(){
+  $("#nav").innerHTML = NAV.map(([h,label,ic])=>
+    `<a href="#${h}" data-h="${h}">${icon(ic)} ${label}</a>`).join("");
+}
 function route(){
-  clearInterval(statusTimer);
-  const h=location.hash||"#tools";
-  document.querySelectorAll("nav a").forEach(a=>a.classList.toggle("active",a.getAttribute("href")===h));
-  if(h==="#files")filesView();
-  else if(h==="#control")controlView();
-  else if(h==="#evilap")evilapView();
-  else if(h==="#reference")refView();
-  else if(h==="#status")statusView();
-  else if(h==="#settings")settingsView();
+  clearInterval(statusTimer); clearInterval(evilTimer); clearInterval(ctrlTimer);
+  const h=(location.hash||"#tools").slice(1);
+  document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.h===h));
+  if(h==="files")filesView();
+  else if(h==="control")controlView();
+  else if(h==="evilap")evilapView();
+  else if(h==="reference")refView();
+  else if(h==="status")statusView();
+  else if(h==="settings")settingsView();
   else toolsView();
 }
 window.onhashchange=route;
 $("#logout").onclick=()=>fetch("/api/login",{method:"POST"}).then(()=>location.href="/login.html");
+
+/* -------------------------------- boot --------------------------------- */
+initTheme();
+buildNav();
 route();
+checkEula();
+api("/api/status").then(s=>{
+  if(s.fw){ $("#brandVer").textContent="v"+s.fw; $("#footVer").textContent=FW_FOOT; }
+}).catch(()=>{});
+const FW_FOOT="LilyStrike — for authorized testing only";

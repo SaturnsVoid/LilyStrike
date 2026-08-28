@@ -1,20 +1,28 @@
 <!DOCTYPE html>
-<!-- login.html - deliberately inconspicuous: looks like a generic IoT/router
-     setup portal. Real branding lives behind successful auth. -->
-<html lang="en"><head><meta charset="utf-8">
+<!-- login.html - deliberately generic: could be any appliance's admin portal.
+     No product name, no hints. -->
+<html lang="en" data-theme="dark"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Device Setup</title>
-<link rel="stylesheet" href="/style.css">
+<title>Sign in</title>
+<link rel="stylesheet" href="/style.css?v=22">
 </head><body class="login-body">
 <div class="login-card">
-  <h2>&#128225; Device Configuration Portal</h2>
-  <p class="muted">Sign in to configure this device.</p>
+  <div style="text-align:center;margin-bottom:18px">
+    <svg width="40" height="40" viewBox="0 0 24 24" fill="none"
+      style="color:var(--muted)">
+      <rect x="4" y="10" width="16" height="10" rx="2" stroke="currentColor" stroke-width="1.6"/>
+      <path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="1.6"/>
+      <circle cx="12" cy="15" r="1.6" fill="currentColor"/>
+    </svg>
+  </div>
+  <h2>Sign in</h2>
+  <p class="muted">Enter your credentials to continue.</p>
   <form id="f">
     <label>Username<input name="user" autocomplete="username" required></label>
     <label>Password<input type="password" name="pass" autocomplete="current-password" required></label>
-    <button type="submit">Sign In</button>
+    <button type="submit" class="primary" style="width:100%">Continue</button>
   </form>
-  <p id="err" class="err"></p>
+  <p id="err" class="err" style="font-size:13px"></p>
 </div>
 <script>
 document.getElementById('f').onsubmit = async (e) => {
@@ -24,6 +32,6 @@ document.getElementById('f').onsubmit = async (e) => {
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify({user: fd.get('user'), pass: fd.get('pass')})});
   if (r.ok) location.href = '/';
-  else document.getElementById('err').textContent = 'Invalid credentials.';
+  else document.getElementById('err').textContent = 'Incorrect username or password.';
 };
 </script></body></html>

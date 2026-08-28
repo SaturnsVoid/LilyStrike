@@ -24,6 +24,7 @@
 #include "msc.h"
 #include "spoof.h"
 #include "evilap.h"
+#include "version.h"
 #include "tusb.h"   // tud_connected(): true once a host configures the device
 #include <SD_MMC.h>
 
@@ -58,7 +59,7 @@ static void plugInTask(void* pv) {
 void setup() {
     Serial.begin(115200);
     configLoad();
-    logLine("boot: ProjectCodename starting");
+    logLine(String("boot: ") + FW_NAME + " v" + FW_VERSION);
 
     msc::loadSettings();
     spoof::load();                 // read saved (or first-boot random) identity
