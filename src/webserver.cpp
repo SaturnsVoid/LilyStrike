@@ -44,6 +44,7 @@
 #include "evilap.h"
 #include "tunnel.h"
 #include "scheduler.h"
+#include "mcp.h"
 #include "version.h"
 #include <ESPmDNS.h>
 #include <Preferences.h>
@@ -900,6 +901,19 @@ static void hStatic() {
     serveWWW(p.c_str());
 }
 
+static void hMcpTokenGet() {
+    requireAuth(); if (!isAuthed()) return;
+    json(200, "{\"token\":\"" + mcp::token() + "\"}");
+}
+static void hMcpTokenSet() {
+    requireAuth(); if (!isAuthed()) return;
+    String body = server.arg("plain"), t;
+    extractJsonStr(body, "token", t);
+    if (t.length() < 8) return jsonErr(400, "token too short (min 8)");
+    mcp::setToken(t);
+    logLine("web: MCP token updated");
+    json(200, "{\"ok\":true}");
+}
 // ---------------------------------------------------------------------------
 bool begin() {
     // Mount the internal flash filesystem that holds /www (web UI).
@@ -961,6 +975,9 @@ bool begin() {
     server.on("/api/scriptmeta", HTTP_GET, hScriptMetaGet);
     server.on("/api/scriptmeta", HTTP_POST, hScriptMetaSet);
     server.on("/api/layouts", HTTP_GET, hLayouts);
+    server.on("/api/mcptoken", HTTP_GET, hMcpTokenGet);
+    server.on("/api/mcptoken", HTTP_POST, hMcpTokenSet);
+    mcp::begin();
     server.on("/api/sched", HTTP_GET, hSchedGet);
     server.on("/api/sched", HTTP_POST, hSchedAdd);
     server.on("/api/sched", HTTP_DELETE, hSchedDelete);
@@ -1002,5 +1019,8 @@ void suspend() { if (s_running) server.stop(); }
 void resume()  { if (s_running) server.begin(); }
 
 String localIP() { return WiFi.softAPIP().toString(); }
+
+// MCP glue: mcp.cpp needs the WebServer object to register its route.
+WebServer* webServerPtr() { return &server; }
 
 } // namespace web
