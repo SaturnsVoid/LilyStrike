@@ -146,10 +146,13 @@ th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5p
 .tok-str{color:#86efac}
 .tok-num{color:#fbbf24}
 .tok-rem{color:#6b7280;font-style:italic}
-[data-theme="light"] .tok-str{color:#15803d}
-[data-theme="light"] .tok-rem{color:#9ca3af}
-[data-theme="light"] .tok-num{color:#b45309}
-[data-theme="light"] #code{color:transparent}
+/* Code surfaces (#hl editor, examples, log, gutter) stay DARK in both
+   themes (IDE convention) - so their text must ALWAYS be light. The bug:
+   light theme inherited dark body text onto the dark editor background. */
+[data-theme="light"] #hl,
+[data-theme="light"] pre.example,
+[data-theme="light"] #logBox,
+[data-theme="light"] #gutter{color:#c9c9dd}
 @media(max-width:760px){
   .key{min-width:26px;height:30px;font-size:10px}
   .kbrow{overflow-x:auto;justify-content:flex-start}
