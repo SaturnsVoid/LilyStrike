@@ -333,6 +333,12 @@ static void hFilesList() {
     if (!dir || !dir.isDirectory()) return jsonErr(404, "no such dir");
     String out = "["; bool first = true; File f;
     while ((f = dir.openNextFile())) {
+        String fn = String(f.name());
+        // sidecars + internal files stay out of the browser
+        if (fn.endsWith(".meta") || fn == "autostart.enc" ||
+            fn == "system.log.enc" || fn == "disk.img" || fn == "portal.html.enc") {
+            f.close(); continue;
+        }
         if (!first) out += ",";
         first = false;
         out += "{\"name\":\"" + String(f.name()) + "\",\"dir\":" +
@@ -849,10 +855,13 @@ bool begin() {
     WiFi.setHostname(cfg.hostname);
     WiFi.softAP(cfg.wifiSSID, strlen(cfg.wifiPass) >= 8 ? cfg.wifiPass : "dongle1234",
                 0, cfg.wifiHidden ? 1 : 0);
-    if (MDNS.begin(cfg.hostname)) {
-        MDNS.addService("http", "tcp", 80);
-        logLine(String("mDNS: http://") + cfg.hostname + ".local");
-    }
+    // mDNS on AP-only: the responder must be told about the softAP interface
+    // explicitly, otherwise .local never resolves (STA-only default).
+    MDNS.begin(cfg.hostname);
+    MDNS.setInstanceName(cfg.hostname);
+    MDNS.enableWorkstation(ESP_IF_WIFI_AP);   // announce on the AP interface too
+    MDNS.addService("http", "tcp", 80);
+    logLine(String("mDNS: http://") + cfg.hostname + ".local");
 
     server.on("/api/login", HTTP_POST, hLogin);
     server.on("/api/status", HTTP_GET, hStatus);
