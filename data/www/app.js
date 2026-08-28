@@ -761,7 +761,10 @@ async function refreshStatus(){
    <tr><td>Uptime</td><td>${hh}h ${mm}m ${ss}s</td></tr>
    <tr><td>SD Free</td><td>${s.sdTotal?((s.sdFree/1048576).toFixed(1)+" / "+(s.sdTotal/1048576).toFixed(1)+" MB"):"not detected"}</td></tr>
    <tr><td>Connection</td><td>${s.usbHost?"Plugged into computer":"Power only"}${s.detectedOS&&s.detectedOS!=="Unknown"?` — <span style="color:var(--accent)">${icon("os",15)}</span> ${esc(s.detectedOS)}`:""}</td></tr>
-   <tr><td>WiFi AP</td><td>${s.ip} (${s.wifiClients} client(s))</td></tr>
+   <tr><td>WiFi AP</td><td>${s.ip} (${s.wifiClients} client(s))${s.wifiHidden?" · <span class='muted'>hidden</span>":""}</td></tr>
+   <tr><td>Client Network</td><td>${s.netConnected
+     ? `${icon("wifi",15)} Connected to <b>${esc(s.netSsid)}</b> — device IP: <b class="mono">${esc(s.netIp)}</b>`
+     : "<span class='muted'>Not connected (AP only)</span>"}</td></tr>
    <tr><td>Script</td><td><span class="badge ${st[0]}">${st[1]}</span> ${esc(s.scriptName)}</td></tr>`;
 }
 async function refreshLog(){ const b=$("#logBox"); if(b) b.textContent=await api("/api/log"); }

@@ -116,6 +116,9 @@ static void hStatus() {
          ",\"usbHost\":" + String(g_state.usbHostPresent ? "true" : "false") +
          ",\"wifiClients\":" + String(WiFi.softAPgetStationNum()) +
          ",\"ip\":\"" + localIP() + "\"" +
+         ",\"netConnected\":" + String(WiFi.status()==WL_CONNECTED ? "true":"false") +
+         ",\"netSsid\":\"" + String(WiFi.SSID()) + "\"" +
+         ",\"netIp\":\"" + (WiFi.status()==WL_CONNECTED ? WiFi.localIP().toString() : String("")) + "\"" +
          ",\"scriptState\":\"" + ducky::stateString() + "\"" +
          ",\"scriptName\":\"" + g_state.lastScriptName + "\"" +
          ",\"detectedOS\":\"" + g_state.detectedOS + "\"" +
