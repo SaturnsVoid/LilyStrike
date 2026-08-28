@@ -100,9 +100,146 @@ bool shouldBootAsThumbdrive() {
     return false;
 }
 
+// ---------------------------------------------------------------------------
+// Stealth drive: an innocent FAT16 image FILE built on the card. The victim
+// sees a small drive containing ONLY disk.zip - our real files (scripts,
+// logs, creds) are not on that filesystem at all and physically unreachable
+// (LUN is read-only). Same isolation technique USBArmyKnife's mountDiskImage
+// uses. Image layout: 4MB, 512B sectors, 4-sector clusters, 2 FATs.
+// ---------------------------------------------------------------------------
+static const char* IMG_PATH = "/disk.img";
+#define IMG_MB        4
+#define IMG_SECTORS   (IMG_MB * 1024 * 1024 / 512)   // 8192
+#define SEC_PER_CLUS  4
+#define FAT_SECTORS   8
+#define ROOT_SECTORS  32
+#define DATA_START    (1 + 2 * FAT_SECTORS + ROOT_SECTORS)   // sector 49
+
+static bool buildStealthImage() {
+    File zip = SD_MMC.open("/disk.zip", FILE_READ);
+    uint32_t payloadSize = 0;
+    if (zip) { payloadSize = zip.size(); }
+
+    uint32_t clustersNeeded = (payloadSize + SEC_PER_CLUS*512 - 1) / (SEC_PER_CLUS*512);
+    uint32_t dataClusters = (IMG_SECTORS - DATA_START) / SEC_PER_CLUS;
+    if (clustersNeeded + 1 > dataClusters) {
+        logLine("MSC: disk.zip too large for image - building empty drive");
+        payloadSize = 0;
+        clustersNeeded = 0;
+        zip = File();   // drop handle
+    }
+
+    SD_MMC.remove(IMG_PATH);
+    File img = SD_MMC.open(IMG_PATH, FILE_WRITE);
+    if (!img) { logLine("MSC: cannot create disk image"); return false; }
+
+    uint8_t sec[512];
+    auto wr = [&](const uint8_t* buf) { img.write(buf, 512); };
+    auto zero = [&]() { memset(sec, 0, 512); };
+
+    // --- sector 0: BPB ---
+    zero();
+    sec[0]=0xEB; sec[1]=0x3C; sec[2]=0x90;
+    memcpy(sec+3, "MSDOS5.0", 8);
+    sec[11]=0x00; sec[12]=0x02;                    // bytes/sector = 512
+    sec[13]=SEC_PER_CLUS;
+    sec[14]=0x01; sec[15]=0x00;                    // reserved sectors = 1
+    sec[16]=2;                                     // 2 FATs
+    sec[17]=0x00; sec[18]=0x02;                    // root entries = 512
+    sec[19]=IMG_SECTORS & 0xFF; sec[20]=IMG_SECTORS >> 8;   // total 16-bit
+    sec[21]=0xF8;                                  // media
+    sec[22]=FAT_SECTORS & 0xFF; sec[23]=FAT_SECTORS >> 8;
+    sec[24]=0x20; sec[25]=0x00;                    // sectors/track = 32
+    sec[26]=0x40; sec[27]=0x00;                    // heads = 64
+    sec[28]=sec[29]=sec[30]=sec[31]=0;             // hidden
+    sec[32]=sec[33]=sec[34]=sec[35]=0;             // total 32-bit = 0
+    sec[36]=0x80; sec[37]=0; sec[38]=0x29;         // drive, reserved, ext boot sig
+    uint32_t vid = esp_random();
+    memcpy(sec+39, &vid, 4);
+    memcpy(sec+43, "DISK        ", 11);            // volume label
+    memcpy(sec+54, "FAT16   ", 8);
+    sec[510]=0x55; sec[511]=0xAA;
+    wr(sec);
+
+    // --- FATs: cluster chain for disk.zip ---
+    auto buildFat = [&]() {
+        zero();
+        sec[0]=0xF8; sec[1]=0xFF; sec[2]=0xFF; sec[3]=0xFF;   // media + EOC
+        for (uint32_t c = 0; c < clustersNeeded; c++) {
+            uint32_t idx = 2 + c;                              // first cluster = 2
+            uint32_t val = (c == clustersNeeded-1) ? 0xFFFF : idx+1;
+            sec[idx*2]   = val & 0xFF;
+            sec[idx*2+1] = val >> 8;
+        }
+        wr(sec);
+    };
+    buildFat(); buildFat();                          // 2 FATs (sectors 1..16)
+
+    // --- root directory (sectors 17..48) ---
+    zero();
+    if (payloadSize) {
+        memcpy(sec+0, "DISK    ZIP", 11);            // 8.3 name: DISK.ZIP
+        sec[11]=0x20;                                // archive
+        // fixed sane timestamp: 2020-01-01 12:00:00
+        sec[13]=0;                                   // tenths
+        sec[14]=0x60; sec[15]=0x8C;                  // time
+        sec[16]=0x21; sec[17]=0x54;                  // date
+        sec[18]=sec[19]=sec[20]=sec[21]=0;           // last access/write
+        sec[22]=sec[23]=0;
+        sec[26]=0x02; sec[27]=0x00;                  // first cluster = 2
+        memcpy(sec+28, &payloadSize, 4);
+    }
+    for (int r = 0; r < ROOT_SECTORS; r++) wr(sec);   // dir entry + zeros
+
+    // --- data area: disk.zip content padded to sector boundaries ---
+    zero();
+    for (uint32_t s2 = DATA_START; s2 < IMG_SECTORS; s2++) {
+        if (zip && zip.available()) {
+            size_t got = zip.read(sec, 512);
+            if (got < 512) { memset(sec+got, 0, 512-got); if (!zip.available()) zip.close(); }
+        }
+        wr(sec);
+    }
+
+    img.close();
+    logLine(String("MSC: stealth image built (") + payloadSize + "B payload)");
+    return true;
+}
+
+// Image-backed LUN state (used instead of raw sectors in stealth mode).
+static File mscImg;
+
 void beginCard(bool readOnly) {
     if (!hw::sdMount()) {
         logLine("MSC: no SD card - cannot expose drive");
+        return;
+    }
+
+    if (readOnly) {
+        // Stealth: serve the self-contained image FILE, never raw sectors.
+        if (!SD_MMC.exists(IMG_PATH)) buildStealthImage();
+        mscImg = SD_MMC.open(IMG_PATH, FILE_READ);
+        if (!mscImg || mscImg.size() < 512) {
+            logLine("MSC: image unavailable - no stealth drive");
+            return;
+        }
+        const uint32_t LBA = 512;
+        uint32_t sectors = mscImg.size() / LBA;
+        msc.productRevision("1.0");
+        msc.onRead([](uint32_t lba, uint32_t offset, void* buf, uint32_t sz) -> int32_t {
+            if (!mscImg.seek(lba * 512 + offset)) return -1;
+            size_t got = mscImg.read((uint8_t*)buf, sz);
+            return (got == sz) ? (int32_t)sz : (got ? (int32_t)got : -1);
+        });
+        msc.onWrite([](uint32_t, uint32_t, uint8_t*, uint32_t) -> int32_t {
+            return -1;                                 // strictly read-only
+        });
+        msc.onStartStop([](uint8_t, bool, bool) -> bool { return true; });
+        msc.mediaPresent(true);
+        msc.isWritable(false);
+        msc.begin(sectors, LBA);
+        s_active = false;                              // FatFs stays safe to use
+        logLine(String("MSC: STEALTH drive (image file) ") + sectors * LBA / 1048576 + " MB");
         return;
     }
     const uint32_t LBA = 512;
