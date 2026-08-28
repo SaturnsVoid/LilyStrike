@@ -152,8 +152,10 @@ function toolsView() {
               placeholder="Type DuckyScript here..."></textarea>
           </div>
         </div>
-        <div style="display:flex;gap:8px;margin-top:10px">
-          <input id="scriptName" placeholder="filename.ds" style="max-width:220px">
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+          <input id="scriptName" placeholder="filename.ds" style="max-width:200px">
+          <input id="scriptDesc" placeholder="Short description (shown in sidebar)" style="flex:1;min-width:180px">
+          <select id="scriptLayout" style="max-width:130px" title="Keyboard layout for this script"></select>
         </div>
       </div>
     </div>
@@ -172,6 +174,7 @@ function toolsView() {
   code.addEventListener("input", () => { highlight(); syncScroll(); });
   code.addEventListener("scroll", syncScroll);
   highlight(); syncScroll();
+  loadLayouts();
   refreshScriptFiles();
 }
 
@@ -225,7 +228,9 @@ async function refreshScriptFiles(retry=true){
     if(!box) return;
     box.innerHTML = `<div class="sl-head">Scripts <button class="small" onclick="newScript()">+</button></div>` +
       list.map(s=>`<button class="sfile ${s.name===curScript?"active":""}"
-        onclick="loadScript('${esc(s.name)}')">${icon("script",13)} ${esc(s.name)}</button>`).join("")
+        title="${esc(s.desc||"")}"
+        onclick="loadScript('${esc(s.name)}')">${icon("script",13)}
+        <span>${esc(s.name)}${s.desc?`<br><small style="color:var(--muted);font-weight:400">${esc(s.desc)}</small>`:""}</span></button>`).join("")
       || `<div class="sl-head" style="font-weight:400">No scripts yet</div>`;
     const pick=$("#autoPick"); if(pick) pick.innerHTML = list.map(s=>`<option>${esc(s.name)}</option>`).join("");
     _scriptsLoaded=true;
@@ -239,12 +244,26 @@ async function loadScript(n){
   const t = await api("/api/script?name="+encodeURIComponent(n));
   CODE().value = String(t).replace(/\r\n?/g,"\n");
   curScript = n; $("#scriptName").value = n;
+  // load description + layout from the meta sidecar
+  api("/api/scriptmeta?name="+encodeURIComponent(n)).then(m=>{
+    $("#scriptDesc").value = m.desc||"";
+    $("#scriptLayout").value = m.layout||"en_US";
+  }).catch(()=>{ $("#scriptDesc").value=""; $("#scriptLayout").value="en_US"; });
   highlight(); syncScroll(); refreshScriptFiles();
   toast("Loaded "+n);
 }
 function newScript(){
-  CODE().value=""; curScript=""; $("#scriptName").value="";
+  CODE().value=""; curScript=""; $("#scriptName").value=""; $("#scriptDesc").value="";
+  $("#scriptLayout").value="en_US";
   highlight(); syncScroll(); refreshScriptFiles(); toast("New script");
+}
+let _layoutsLoaded=false;
+function loadLayouts(){
+  if(_layoutsLoaded) return; _layoutsLoaded=true;
+  api("/api/layouts").then(l=>{
+    $("#scriptLayout").innerHTML = l.map(x=>`<option>${esc(x)}</option>`).join("");
+    $("#scriptLayout").value="en_US";
+  }).catch(()=>{});
 }
 async function saveScript(){
   let n=$("#scriptName").value.trim();
@@ -252,6 +271,8 @@ async function saveScript(){
   if(!n.endsWith(".ds")) n += ".ds";
   $("#scriptName").value = n;
   await jpost("/api/script",{name:n,text:CODE().value});
+  // description + layout saved to an encrypted sidecar next to the script
+  await jpost("/api/scriptmeta",{name:n,desc:$("#scriptDesc").value,layout:$("#scriptLayout").value});
   curScript=n; refreshScriptFiles(); toast("Saved "+n);
 }
 async function delScript(){
@@ -753,6 +774,8 @@ function settingsView(){
     <p class="desc">The management network this device broadcasts for browser access. Applies after reboot.</p>
     <label>SSID<input id="ssid"></label>
     <label>Password<input id="wifiPass" type="password"></label>
+    <label>Hostname (device reachable at &lt;hostname&gt;.local on networks it joins)
+      <input id="hostname" placeholder="lilystrike"></label>
     <label><input type="checkbox" id="wifiHidden" style="width:auto"> Hidden SSID — won't broadcast; join manually</label>
   </div>
   <div class="setcard"><h3>${icon("gauge")} Login Credentials</h3>
@@ -845,6 +868,7 @@ async function loadSettingsState(){
   try{
     const s=await api("/api/settings");
     $("#ssid").value=s.ssid||""; $("#user").value=s.user||"";
+    $("#hostname").value=s.hostname||"lilystrike";
     $("#wifiHidden").checked=!!s.wifiHidden;
     $("#screenOnBoot").checked=!!s.screenOnBoot;
     $("#ledOnBoot").checked=!!s.ledOnBoot;
@@ -926,7 +950,7 @@ async function randomSpoof(){
 async function saveSettings(){
   const b={};
   for(const [id,key] of [["ssid","ssid"],["wifiPass","wifiPass"],["user","user"],
-                          ["webPass","webPass"],["encPassword","encPassword"]]){
+                          ["webPass","webPass"],["encPassword","encPassword"],["hostname","hostname"]]){
     const v=$("#"+id).value; if(v.length) b[key]=v;
   }
   b.wifiHidden=$("#wifiHidden").checked;
