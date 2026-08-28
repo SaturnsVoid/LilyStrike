@@ -50,7 +50,41 @@
 
 namespace ducky {
 
-USBHIDKeyboard kb;
+USBHIDKeyboard kb;      // declared first: setLayout below uses it
+
+// Keyboard layout support (Step 4.x): kb.begin(layout) re-initializes with
+// the given scancode map. The extra externs cover layouts whose symbols the
+// core header doesn't declare but ships as .cpp files anyway.
+// NOTE: these live outside our namespace (C symbols from the core lib)
+extern "C" const uint8_t KeyboardLayout_da_DK[];
+extern "C" const uint8_t KeyboardLayout_hu_HU[];
+extern "C" const uint8_t KeyboardLayout_ja_JP[];
+extern "C" const uint8_t KeyboardLayout_pt_BR[];
+struct LayoutEntry { const char* name; const uint8_t* layout; };
+static const LayoutEntry LAYOUTS[] = {
+    {"en_US", KeyboardLayout_en_US},
+    {"de_DE", KeyboardLayout_de_DE},
+    {"es_ES", KeyboardLayout_es_ES},
+    {"fr_CH", KeyboardLayout_fr_CH},
+    {"fr_FR", KeyboardLayout_fr_FR},
+    {"it_IT", KeyboardLayout_it_IT},
+    {"pt_PT", KeyboardLayout_pt_PT},
+    {"pt_BR", KeyboardLayout_pt_BR},
+    {"sv_SE", KeyboardLayout_sv_SE},
+    {"da_DK", KeyboardLayout_da_DK},
+    {"hu_HU", KeyboardLayout_hu_HU},
+    {"ja_JP", KeyboardLayout_ja_JP},
+};
+std::vector<String> layoutNames() {
+    std::vector<String> out;
+    for (auto& l : LAYOUTS) out.push_back(l.name);
+    return out;
+}
+void setLayout(const String& name) {
+    for (auto& l : LAYOUTS)
+        if (name == l.name) { kb.begin(l.layout); logLine("layout: " + name); return; }
+}
+
 static USBHIDMouse mouse;
 static bool kbStarted = false;
 static volatile bool g_running = false;

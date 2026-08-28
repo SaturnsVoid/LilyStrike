@@ -30,6 +30,8 @@ void stop();
 
 // Start USB HID stack once at boot. MUST be called before run().
 void initOnce();
+std::vector<String> layoutNames();
+void setLayout(const String& name);   // applies to subsequent keystrokes
 
 // ---- HID control (Control Page / future MCP mode) ----
 void hidKey(const String& keyName, bool down);       // named key press/release

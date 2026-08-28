@@ -13,6 +13,7 @@ struct DeviceConfig {
     char     wifiSSID[33];
     char     wifiPass[65];
     bool     wifiHidden;        // interface AP hidden SSID
+    char     hostname[33];      // mDNS/hostname, e.g. "lilystrike"
     // Web interface login
     char     webUser[33];
     char     webPass[65];

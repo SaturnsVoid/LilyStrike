@@ -43,6 +43,7 @@
 #include "msc.h"
 #include "evilap.h"
 #include "version.h"
+#include <ESPmDNS.h>
 #include <Preferences.h>
 #include <esp_system.h>
 #include "power.h"
@@ -153,6 +154,19 @@ static void hFormatSD() {
 }
 
 // ---- scripts ---------------------------------------------------------------
+// ---- script metadata sidecar (description + keyboard layout) ----
+static String metaPath(const String& name) { return "/scripts/" + name + ".meta"; }
+static String readMeta(const String& name) {
+    String j;
+    if (!decryptFromFile(metaPath(name).c_str(), j)) return "{}";
+    return j;
+}
+static void writeMeta(const String& name, const String& desc, const String& layout) {
+    if (!desc.length() && !layout.length()) { SD_MMC.remove(metaPath(name).c_str()); return; }
+    String j = "{\"desc\":\"" + desc + "\",\"layout\":\"" + layout + "\"}";
+    encryptToFile(metaPath(name).c_str(), j);
+}
+
 static String sanitizeName(const String& n) {
     String s = n;
     s.replace("/", ""); s.replace("..", "");
@@ -170,7 +184,12 @@ static void hScriptsList() {
             if (!f.isDirectory()) {
                 if (!first) out += ",";
                 first = false;
-                out += "{\"name\":\"" + String(f.name()) + "\",\"size\":" + String(f.size()) + "}";
+                String meta = readMeta(String(f.name()));
+                String desc;
+                extractJsonStr(meta, "desc", desc);
+                if (desc.length() > 60) desc = desc.substring(0, 60);
+                out += "{\"name\":\"" + String(f.name()) + "\",\"size\":" + String(f.size()) +
+                       ",\"desc\":\"" + desc + "\"}";
             }
             f.close();
         }
@@ -246,6 +265,11 @@ static void runScriptTask(void* pv) {
 }
 
 static void startRun(const String& text, const String& name) {
+    // Per-script keyboard layout (meta sidecar), applied before typing starts.
+    String meta = readMeta(name);
+    String layout;
+    extractJsonStr(meta, "layout", layout);
+    if (layout.length()) ducky::setLayout(layout);
     auto* p = new std::pair<String,String>(text, name);
     xTaskCreatePinnedToCore(runScriptTask, "ducky", 8192, p, 1, nullptr, 0);
 }
@@ -510,6 +534,39 @@ static void hEulaSet() {
     json(200, "{\"ok\":true}");
 }
 
+// ---- Script metadata (description + keyboard layout) --------------------------
+static void hScriptMetaGet() {
+    requireAuth(); if (!isAuthed()) return;
+    String name = sanitizeName(server.arg("name"));
+    String meta = readMeta(name);
+    String desc="0", layout;   // desc default empty
+    desc = "";
+    extractJsonStr(meta, "desc", desc);
+    extractJsonStr(meta, "layout", layout);
+    if (!layout.length()) layout = "en_US";
+    json(200, "{\"desc\":\"" + desc + "\",\"layout\":\"" + layout + "\"}");
+}
+static void hScriptMetaSet() {
+    requireAuth(); if (!isAuthed()) return;
+    String body = server.arg("plain"), name, desc, layout;
+    if (!extractJsonStr(body, "name", name)) return jsonErr(400, "name required");
+    extractJsonStr(body, "desc", desc);
+    extractJsonStr(body, "layout", layout);
+    name = sanitizeName(name);
+    writeMeta(name, desc, layout);
+    json(200, "{\"ok\":true}");
+}
+static void hLayouts() {
+    requireAuth(); if (!isAuthed()) return;
+    auto names = ducky::layoutNames();
+    String out = "[";
+    for (size_t i = 0; i < names.size(); i++) {
+        if (i) out += ",";
+        out += "\"" + names[i] + "\"";
+    }
+    json(200, out + "]");
+}
+
 // ---- Self destruct -----------------------------------------------------------
 static void hSelfDestruct() {
     requireAuth(); if (!isAuthed()) return;
@@ -697,6 +754,7 @@ static void hSettings() {
     if (body.indexOf("\"wifiHidden\":true") >= 0)   cfg.wifiHidden = true;
     if (body.indexOf("\"wifiHidden\":false") >= 0)  cfg.wifiHidden = false;
     if (extractJsonStr(body, "user", v) && v.length()) strlcpy(cfg.webUser, v.c_str(), sizeof(cfg.webUser));
+    if (extractJsonStr(body, "hostname", v) && v.length()) strlcpy(cfg.hostname, v.c_str(), sizeof(cfg.hostname));
     if (extractJsonStr(body, "webPass", v) && v.length()) strlcpy(cfg.webPass, v.c_str(), sizeof(cfg.webPass));
     if (extractJsonStr(body, "encPassword", v) && v.length()) strlcpy(cfg.encPassword, v.c_str(), sizeof(cfg.encPassword));
 
@@ -729,6 +787,7 @@ static void hSettingsGet() {
     requireAuth(); if (!isAuthed()) return;
     String s = "{\"ssid\":\"" + String(cfg.wifiSSID) + "\"" +
         ",\"user\":\"" + String(cfg.webUser) + "\"" +
+        ",\"hostname\":\"" + String(cfg.hostname) + "\"" +
         ",\"screenOnBoot\":" + String(cfg.screenOnBoot ? "true" : "false") +
         ",\"ledOnBoot\":" + String(cfg.ledOnBoot ? "true" : "false") +
         ",\"brightness\":" + String(cfg.screenBrightness) +
@@ -785,8 +844,15 @@ bool begin() {
         return false;
     }
     WiFi.mode(WIFI_AP);
+    // Hostname: helps users find the device without knowing the IP; also
+    // registers <hostname>.local via mDNS on any network the device joins.
+    WiFi.setHostname(cfg.hostname);
     WiFi.softAP(cfg.wifiSSID, strlen(cfg.wifiPass) >= 8 ? cfg.wifiPass : "dongle1234",
                 0, cfg.wifiHidden ? 1 : 0);
+    if (MDNS.begin(cfg.hostname)) {
+        MDNS.addService("http", "tcp", 80);
+        logLine(String("mDNS: http://") + cfg.hostname + ".local");
+    }
 
     server.on("/api/login", HTTP_POST, hLogin);
     server.on("/api/status", HTTP_GET, hStatus);
@@ -814,6 +880,9 @@ bool begin() {
     server.on("/api/evilap/html", HTTP_POST, hEvilHtmlSet);
     server.on("/api/msc", HTTP_GET, hMscGet);
     server.on("/api/msc", HTTP_POST, hMscSet);
+    server.on("/api/scriptmeta", HTTP_GET, hScriptMetaGet);
+    server.on("/api/scriptmeta", HTTP_POST, hScriptMetaSet);
+    server.on("/api/layouts", HTTP_GET, hLayouts);
     server.on("/api/sys", HTTP_GET, hSysGet);
     server.on("/api/sys", HTTP_POST, hSysSet);
     server.on("/api/eula", HTTP_GET, hEulaGet);
