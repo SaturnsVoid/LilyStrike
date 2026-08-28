@@ -24,6 +24,7 @@ static void applyDefaults() {
     cfg.ledOnBoot = false;
     cfg.screenBrightness = 128;
     cfg.autoDetectOS = false;
+    cfg.wifiHidden = false;
     cfg.ifaceDisabledPerm = false;
     cfg.ifaceTempOff = false;
 }
@@ -40,6 +41,7 @@ void configLoad() {
     cfg.ledOnBoot         = prefs.getBool("ledOn", cfg.ledOnBoot);
     cfg.screenBrightness  = prefs.getUChar("scrBr", cfg.screenBrightness);
     cfg.autoDetectOS      = prefs.getBool("autoOS", cfg.autoDetectOS);
+    cfg.wifiHidden        = prefs.getBool("wifiHidden", cfg.wifiHidden);
     cfg.ifaceDisabledPerm = prefs.getBool("ifacePerm", cfg.ifaceDisabledPerm);
     cfg.ifaceTempOff      = prefs.getBool("ifaceTemp", cfg.ifaceTempOff);
     prefs.end();
@@ -50,7 +52,7 @@ template <typename F> static void withPrefs(F fn) {
     prefs.begin(NS, false); fn(prefs); prefs.end();
 }
 
-void configSaveWiFi()   { withPrefs([](Preferences& p){ p.putString("ssid", cfg.wifiSSID); p.putString("wpass", cfg.wifiPass); }); }
+void configSaveWiFi()   { withPrefs([](Preferences& p){ p.putString("ssid", cfg.wifiSSID); p.putString("wpass", cfg.wifiPass); p.putBool("wifiHidden", cfg.wifiHidden); }); }
 void configSaveLogin()  { withPrefs([](Preferences& p){ p.putString("wuser", cfg.webUser); p.putString("wpass2", cfg.webPass); }); }
 void configSaveEncryption(){ withPrefs([](Preferences& p){ p.putString("encp", cfg.encPassword); }); }
 void configSaveDisplay(){ withPrefs([](Preferences& p){ p.putBool("scrOn", cfg.screenOnBoot); p.putBool("ledOn", cfg.ledOnBoot); p.putUChar("scrBr", cfg.screenBrightness); }); }

@@ -27,13 +27,24 @@ static String s_vendor, s_product, s_serial;
 void load() {
     Preferences p; p.begin("spoof", true);
     bool have = p.getBool("set", false);
+    bool randomPerBoot = p.getBool("randBoot", false);
+    if (randomPerBoot) {
+        // Explicit user-selected mode: fresh identity every power-up.
+        randomize();
+        return;
+    }
     s_vid = p.getUShort("vid", 0);
     s_pid = p.getUShort("pid", 0);
     s_vendor  = p.getString("vendor", "");
     s_product = p.getString("product", "");
     s_serial  = p.getString("serial", "");
     p.end();
-    if (!have || !s_vid || !s_pid) randomize();   // first boot: pick a preset
+    if (!have || !s_vid || !s_pid) {
+        // First boot: pick one preset AND persist it, otherwise every boot
+        // would re-randomize (identity must be stable unless user opts in).
+        randomize();
+        save();
+    }
 }
 
 void save() {

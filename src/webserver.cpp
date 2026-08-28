@@ -35,6 +35,7 @@
 #include <SD_MMC.h>
 #include "util.h"
 #include "spoof.h"
+#include <Preferences.h>
 #include "detect_os.h"
 #include "sys.h"
 #include "msc.h"
@@ -518,6 +519,17 @@ static void hSpoofGet() {
 static void hSpoofSet() {
     requireAuth(); if (!isAuthed()) return;
     String body = server.arg("plain"), v;
+    // randomPerBoot toggles the identity mode (persists separately)
+    if (body.indexOf("\"randomPerBoot\":true") >= 0 ||
+        body.indexOf("\"randomPerBoot\":false") >= 0) {
+        bool rp = body.indexOf("\"randomPerBoot\":true") >= 0;
+        Preferences p; p.begin("spoof", false);
+        p.putBool("randBoot", rp);
+        p.end();
+        if (rp) spoof::randomize();   // immediate effect this boot
+        logLine(String("web: identity random-per-boot ") + (rp?"ON":"OFF"));
+        return json(200, "{\"ok\":true}");
+    }
     if (body.indexOf("\"randomize\":true") >= 0) {
         spoof::randomize();
     } else {
@@ -605,6 +617,8 @@ static void hSettings() {
     if (extractJsonStr(body, "ssid", v) && v.length())
         strlcpy(cfg.wifiSSID, v.c_str(), sizeof(cfg.wifiSSID));
     if (extractJsonStr(body, "wifiPass", v) && v.length()) strlcpy(cfg.wifiPass, v.c_str(), sizeof(cfg.wifiPass));
+    if (body.indexOf("\"wifiHidden\":true") >= 0)   cfg.wifiHidden = true;
+    if (body.indexOf("\"wifiHidden\":false") >= 0)  cfg.wifiHidden = false;
     if (extractJsonStr(body, "user", v) && v.length()) strlcpy(cfg.webUser, v.c_str(), sizeof(cfg.webUser));
     if (extractJsonStr(body, "webPass", v) && v.length()) strlcpy(cfg.webPass, v.c_str(), sizeof(cfg.webPass));
     if (extractJsonStr(body, "encPassword", v) && v.length()) strlcpy(cfg.encPassword, v.c_str(), sizeof(cfg.encPassword));
@@ -642,6 +656,7 @@ static void hSettingsGet() {
         ",\"ledOnBoot\":" + String(cfg.ledOnBoot ? "true" : "false") +
         ",\"brightness\":" + String(cfg.screenBrightness) +
         ",\"autoDetectOS\":" + String(cfg.autoDetectOS ? "true" : "false") +
+        ",\"wifiHidden\":" + String(cfg.wifiHidden ? "true" : "false") +
         ",\"tempOff\":" + String(cfg.ifaceTempOff ? "true" : "false") +
         ",\"permOff\":" + String(cfg.ifaceDisabledPerm ? "true" : "false") +
         "}";
@@ -693,7 +708,8 @@ bool begin() {
         return false;
     }
     WiFi.mode(WIFI_AP);
-    WiFi.softAP(cfg.wifiSSID, strlen(cfg.wifiPass) >= 8 ? cfg.wifiPass : "dongle1234");
+    WiFi.softAP(cfg.wifiSSID, strlen(cfg.wifiPass) >= 8 ? cfg.wifiPass : "dongle1234",
+                0, cfg.wifiHidden ? 1 : 0);
 
     server.on("/api/login", HTTP_POST, hLogin);
     server.on("/api/status", HTTP_GET, hStatus);

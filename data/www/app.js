@@ -266,7 +266,8 @@ async function refreshLog(){ const b=$("#logBox"); if(b) b.textContent=await api
 function settingsView(){
   view.innerHTML=`<div class="panel"><h2>WiFi Access Point</h2>
     <p class="muted">Leave a box empty to keep the current value.</p>
-    <label>SSID<input id="ssid"></label><label>Password<input id="wifiPass" type="password"></label></div>
+    <label>SSID<input id="ssid"></label><label>Password<input id="wifiPass" type="password"></label>
+    <label><input type="checkbox" id="wifiHidden" style="width:auto"> Hidden SSID (must join manually - won't broadcast)</label></div>
   <div class="panel"><h2>Login Credentials</h2>
     <label>Username<input id="user"></label><label>Password<input id="webPass" type="password"></label></div>
   <div class="panel"><h2>Encryption Password</h2>
@@ -295,6 +296,7 @@ function settingsView(){
     <label>Vendor<input id="spoofVendor"></label>
     <label>Product<input id="spoofProduct"></label>
     <label>Serial (empty = random 12-digit each change)<input id="spoofSerial"></label>
+    <label><input type="checkbox" id="spoofRandBoot" style="width:auto"> New random identity on EVERY boot (unchecked = use saved identity)</label>
     <button class="small" onclick="saveSpoof()">Save Identity</button>
     <button class="small" onclick="randomSpoof()">Randomize</button>
   </div>
@@ -317,6 +319,7 @@ async function loadSettingsState(){
       $("#thumbMode").value=String(m.thumb);
       $("#usbStorage").checked=!!m.storage;
     }).catch(()=>{});
+    $("#wifiHidden").checked=!!s.wifiHidden;
     $("#autoDetectOS").checked=!!s.autoDetectOS;
     if(s.permOff) toast("Interface is PERMANENTLY disabled (takes effect on reboot)","err");
   }catch(e){ /* leave defaults */ }
@@ -333,6 +336,7 @@ async function loadSpoof(){
     $("#spoofVid").value=sp.vid; $("#spoofPid").value=sp.pid;
     $("#spoofVendor").value=sp.vendor; $("#spoofProduct").value=sp.product;
     $("#spoofSerial").value=sp.serial;
+    $("#spoofRandBoot").checked=!!sp.randomPerBoot;
     $("#spoofPreset").innerHTML='<option value="">- custom -</option>'+
       sp.presets.map((p,i)=>`<option value="${i}">${esc(p.vendor)} - ${esc(p.product)}</option>`).join("");
     window._presets=sp.presets;
@@ -347,6 +351,7 @@ function applyPreset(){
 async function saveSpoof(){
   await jpost("/api/spoof",{vid:$("#spoofVid").value,pid:$("#spoofPid").value,
     vendor:$("#spoofVendor").value,product:$("#spoofProduct").value,serial:$("#spoofSerial").value});
+  await jpost("/api/spoof",{randomPerBoot:$("#spoofRandBoot").checked});
   toast("Identity saved - applies on next boot/plug-in");
 }
 async function randomSpoof(){
@@ -360,6 +365,7 @@ async function saveSettings(){
                           ["webPass","webPass"],["encPassword","encPassword"]]){
     const v=$(("#"+id)).value; if(v.length) b[key]=v;
   }
+  b.wifiHidden=$("#wifiHidden").checked;
   b.screenOnBoot=$("#screenOnBoot").checked;
   b.ledOnBoot=$("#ledOnBoot").checked;
   b.brightness=+$("#brightness").value;
