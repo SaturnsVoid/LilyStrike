@@ -549,6 +549,29 @@ static void hEulaSet() {
     json(200, "{\"ok\":true}");
 }
 
+// ---- WiFi scanner (recon + diagnostics) ---------------------------------------
+static void hWifiScan() {
+    requireAuth(); if (!isAuthed()) return;
+    // Scan in AP+STA so our own management AP stays up during the scan.
+    WiFi.mode(WIFI_AP_STA);
+    int n = WiFi.scanNetworks();
+    if (n < 0) return jsonErr(500, "scan failed");
+    String out = "[";
+    for (int i = 0; i < n; i++) {
+        if (i) out += ",";
+        String ssid = WiFi.SSID(i);
+        ssid.replace("\"","'");   // keep JSON valid
+        bool hidden = ssid.length()==0;
+        out += "{\"ssid\":\"" + (hidden?"(hidden)":ssid) + "\"" +
+               ",\"rssi\":" + String(WiFi.RSSI(i)) +
+               ",\"ch\":" + String(WiFi.channel(i)) +
+               ",\"secure\":" + String(WiFi.encryptionType(i)!=WIFI_AUTH_OPEN?"true":"false") +
+               ",\"hidden\":" + String(hidden?"true":"false") + "}";
+    }
+    WiFi.scanDelete();
+    json(200, out + "]");
+}
+
 // ---- Script metadata (description + keyboard layout) --------------------------
 static void hScriptMetaGet() {
     requireAuth(); if (!isAuthed()) return;
@@ -902,6 +925,7 @@ bool begin() {
     server.on("/api/scriptmeta", HTTP_GET, hScriptMetaGet);
     server.on("/api/scriptmeta", HTTP_POST, hScriptMetaSet);
     server.on("/api/layouts", HTTP_GET, hLayouts);
+    server.on("/api/wifiscan", HTTP_GET, hWifiScan);
     server.on("/api/sys", HTTP_GET, hSysGet);
     server.on("/api/sys", HTTP_POST, hSysSet);
     server.on("/api/eula", HTTP_GET, hEulaGet);

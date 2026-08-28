@@ -1053,6 +1053,7 @@ SCREEN_OFF`],
 /* ============================== ROUTER ================================ */
 const NAV=[
  ["tools","BadUSB","bolt"],["files","Files","folder"],
+ ["wifiscan","WiFi Scan","wifi"],
  ["control","Live Control","keyboard"],["evilap","EvilAP","wifi"],
  ["reference","Reference","book"],["status","Status","gauge"],
  ["settings","Settings","gear"],
@@ -1066,6 +1067,7 @@ function route(){
   const h=(location.hash||"#tools").slice(1);
   document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.h===h));
   if(h==="files")filesView();
+  else if(h==="wifiscan")wifiscanView();
   else if(h==="control")controlView();
   else if(h==="evilap")evilapView();
   else if(h==="reference")refView();
