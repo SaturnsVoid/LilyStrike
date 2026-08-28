@@ -654,6 +654,9 @@ const REF_GROUPS=[
  ["SELF_DESTRUCT","Wipes EVERYTHING including firmware. Recovery only by re-flash. Absolute last resort.","SELF_DESTRUCT"],
  ["LOG <message>","Write a message to the encrypted device log (Status page).","LOG payload finished cleanly"],
  ["USB_STORAGE <enable|disable>","Expose the SD card as a USB drive alongside HID so scripts can move files. Re-enumerates USB on change.","USB_STORAGE enable\nDELAY 3000"],
+ ["BRUTEFORCE_PIN <len> [delayMs]","Types every numeric code of the given length (0000, 0001, ...), pressing Enter after each and backspacing for the next. Default 500 ms between attempts. Stop anytime via the web UI.","BRUTEFORCE_PIN 4 300"],
+ ["BRUTEFORCE_LOGIN <file>","Types user/password pairs from a file on the SD card (lines like user:pass or user,pass). Tab between fields, Enter to submit, 800 ms pace.","BRUTEFORCE_LOGIN /creds.txt"],
+ ["TUNNEL ON|OFF","Enable or disable external relay access (Settings > External Access).","TUNNEL ON"],
 ]],
 ];
 
@@ -781,6 +784,29 @@ function settingsView(){
     <label><input type="checkbox" id="usbStorage" style="width:auto" onchange="saveMsc()">
       USB_STORAGE — full card read-write alongside HID</label>
   </div>
+  <div class="setcard"><h3>${icon("gauge")} Power Mode</h3>
+    <p class="desc">CPU clock + WiFi transmit power. High may trip weak USB ports. Script DELAY timings change with clock speed — re-tune payloads when switching.</p>
+    <label>Mode<select id="powerMode" onchange="saveSys()">
+      <option value="0">Low — 80 MHz | 10 dBm (max stealth)</option>
+      <option value="1">Normal — 160 MHz | 17 dBm</option>
+      <option value="2">High — 240 MHz | 19.5 dBm</option>
+    </select></label>
+  </div>
+  <div class="setcard"><h3>${icon("os")} MAC Spoofing</h3>
+    <p class="desc">Changes the MAC address the device presents over WiFi. Applies at next boot.</p>
+    <label>Mode<select id="macMode" onchange="saveSys()">
+      <option value="0">Hardware default</option>
+      <option value="1">Randomize on every boot</option>
+      <option value="2">Custom MAC</option>
+    </select></label>
+    <label>Custom MAC (AA:BB:CC:DD:EE:FF)<input id="macCustom" placeholder="02:AB:CD:EF:11:22"></label>
+  </div>
+  <div class="setcard"><h3>${icon("wifi")} External Access (Tunnel)</h3>
+    <p class="desc">Reach this device's interface from outside its network via a relay. Host <b class="mono">tools/relay_server.py</b> on any VPS, then point the device here. Browser: <b class="mono">http://relay/t/&lt;token&gt;/</b></p>
+    <label>Relay URL<input id="tunnelUrl" placeholder="http://my-vps:5000"></label>
+    <label>Token<input id="tunnelToken" placeholder="shared secret"></label>
+    <label><input type="checkbox" id="tunnelEnabled" style="width:auto" onchange="saveSys()"> Enable tunnel when on an internet network</label>
+  </div>
   <div class="setcard"><h3>${icon("gear")} Interface Availability</h3>
     <p class="desc">Temporarily disable the web interface (hold BOOT 1.5 s on next boot to re-enable). Permanent mode requires a firmware re-flash to undo.</p>
     <label><input type="checkbox" id="tempOff" style="width:auto"> Temporarily disable web interface</label>
@@ -813,11 +839,25 @@ async function loadSettingsState(){
     $("#autoDetectOS").checked=!!s.autoDetectOS;
     if(s.permOff) toast("Interface is PERMANENTLY disabled (on reboot)","err");
   }catch(e){}
+  api("/api/sys").then(c=>{
+    $("#powerMode").value=String(c.powerMode);
+    $("#macMode").value=String(c.macMode);
+    $("#macCustom").value=c.macCustom||"";
+    $("#tunnelUrl").value=c.tunnelUrl||"";
+    $("#tunnelToken").value=c.tunnelToken||"";
+    $("#tunnelEnabled").checked=!!c.tunnelEnabled;
+  }).catch(()=>{});
   api("/api/msc").then(m=>{
     $("#thumbMode").value=String(m.thumb);
     $("#usbStorage").checked=!!m.storage;
   }).catch(()=>{});
   loadSpoof();
+}
+async function saveSys(){
+  await jpost("/api/sys",{powerMode:+$("#powerMode").value, macMode:+$("#macMode").value,
+    macCustom:$("#macCustom").value, tunnelUrl:$("#tunnelUrl").value,
+    tunnelToken:$("#tunnelToken").value, tunnelEnabled:$("#tunnelEnabled").checked});
+  toast("Saved. Power mode applied now; MAC at next boot.");
 }
 async function saveMsc(){
   await jpost("/api/msc",{thumb:+$("#thumbMode").value, storage:$("#usbStorage").checked});

