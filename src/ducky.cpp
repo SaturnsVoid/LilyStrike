@@ -38,6 +38,7 @@
 #include "sys.h"
 #include "msc.h"
 #include "tunnel.h"
+#include "version.h"
 #include <esp32-hal-tinyusb.h>
 #include <USB.h>
 #include <USBHIDKeyboard.h>
@@ -376,6 +377,10 @@ RunResult run(const String& scriptText, const String& name) {
     g_vars.clear();
     int defaultDelay = 0;
     String lastCmdLine;
+    // ON_ERROR policy: CONTINUE (default), STOP, or JUMP <label>
+    String onError = "CONTINUE";
+    String onErrorTarget = "";
+    std::vector<int> labels;   // parallel: label positions resolved lazily
 
     // findMatching: index of END_IF matching the IF at `i` (handles nesting).
     auto findMatching = [&](int i) -> int {
@@ -584,6 +589,70 @@ RunResult run(const String& scriptText, const String& name) {
                 logLine("[script:" + name + "] TRIGGER_KEY: " + (pressed?"pressed":"timeout(skip)"));
             }
         }
+        else if (cmd.equalsIgnoreCase("HOLD_KEY"))      {
+            // HOLD_KEY <key> [ms] - hold for duration, or until RELEASE_KEY
+            int sp2 = args.indexOf(' ');
+            String key = (sp2>0)?args.substring(0,sp2):args;
+            long ms = (sp2>0)?constrain(args.substring(sp2+1).toInt(),0,600000):0;
+            uint8_t k;
+            if (!resolveKey(key, k)) { res.error += "HOLD_KEY: unknown key '"+key+"' "; }
+            else {
+                kb.press(k);
+                if (ms > 0) { delay(ms); kb.release(k); }
+            }
+        }
+        else if (cmd.equalsIgnoreCase("RELEASE_KEY"))   {
+            uint8_t k;
+            if (resolveKey(args, k)) kb.release(k);
+            kb.releaseAll();   // safety: never leave stuck keys
+        }
+        else if (cmd.equalsIgnoreCase("MOUSE_CLICK"))   {
+            String b = args; b.trim(); b.toLowerCase();
+            if (b == "double") {
+                for (int c2=0;c2<2;c2++){ mouse.press(MOUSE_LEFT); delay(15); mouse.release(MOUSE_LEFT); delay(40); }
+            } else {
+                uint8_t btn = (b=="right")?MOUSE_RIGHT:(b=="middle")?MOUSE_MIDDLE:MOUSE_LEFT;
+                mouse.press(btn); delay(25); mouse.release(btn);
+            }
+        }
+        else if (cmd.equalsIgnoreCase("MOUSE_MOVE_SMOOTH")) {
+            // MOUSE_MOVE_SMOOTH <x> <y> [ms] - eased human-like glide
+            int sp2 = args.indexOf(' ');
+            int sp3 = (sp2>0)?args.indexOf(' ', sp2+1):-1;
+            long tx = (sp2>0)?args.substring(0,sp2).toInt():0;
+            long ty = (sp3>0)?args.substring(sp2+1,sp3).toInt():args.substring(sp2+1).toInt();
+            long ms = (sp3>0)?constrain(args.substring(sp3+1).toInt(),50,10000):400;
+            static int lastX=0, lastY=0;   // persists across calls (absolute targets)
+            int steps = constrain((int)(ms/16), 4, 60);   // ~60fps
+            for (int s2=1; s2<=steps && !g_stopRequested; s2++) {
+                float t = (float)s2/steps;
+                float ease = t*t*(3-2*t);                  // smoothstep
+                int nx = (int)(tx*ease), ny = (int)(ty*ease);
+                mouse.move(nx-lastX, ny-lastY);
+                lastX=nx; lastY=ny;
+                delay(ms/steps);
+            }
+        }
+        else if (cmd.equalsIgnoreCase("SCREEN_STATS"))  {
+            // Live status render: script, line, RAM, IPs
+            String ips = (WiFi.status()==WL_CONNECTED) ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
+            hw::screenOn();
+            String t = FW_NAME "\nv" FW_VERSION "  " + String(getCpuFrequencyMhz()) + "MHz\n"
+                "RAM " + String(ESP.getFreeHeap()/1024) + "KB\n"
+                "IP " + ips + "\n"
+                "[" + name + "]";
+            hw::screenText(t);
+            logLine("[script:" + name + "] SCREEN_STATS shown");
+        }
+        else if (cmd.equalsIgnoreCase("ON_ERROR"))      {
+            String pol = args; pol.trim(); pol.toUpperCase();
+            if (pol.startsWith("JUMP ")) {
+                onError = "JUMP";
+                onErrorTarget = pol.substring(5); onErrorTarget.trim();
+            } else if (pol=="STOP" || pol=="CONTINUE") {
+                onError = pol; onErrorTarget = "";
+            } else res.error += "ON_ERROR: CONTINUE|STOP|JUMP label ";
+        }
         else if (cmd.equalsIgnoreCase("VAR"))           {
             // VAR name value... - value may contain value-commands ($ vars too)
             int sp2 = args.indexOf(' ');
@@ -731,11 +800,31 @@ RunResult run(const String& scriptText, const String& name) {
             // combo / special-key line ("GUI r", "ENTER", ...)
             uint8_t k;
             if (resolveKey(cmd, k)) pressCombo(L.cmd + (L.args.length()? " "+L.args : ""));
-            else { executed = false; res.error += "L" + String(L.srcLine) + ":unknown '" + cmd + "' "; }
+            else {
+                executed = false;
+                res.error += "L" + String(L.srcLine) + ":unknown '" + cmd + "' ";
+                if (onError == "STOP") {
+                    res.ok = false;
+                    break;
+                } else if (onError == "JUMP") {
+                    // find LABEL <target>
+                    bool found=false;
+                    for (int j=i+1; j<(int)lines.size(); j++) {
+                        if (lines[j].cmd.equalsIgnoreCase("LABEL") &&
+                            lines[j].args.equalsIgnoreCase(onErrorTarget)) { i=j+1; found=true; break; }
+                    }
+                    if (found) continue;
+                    res.ok = false;   // label missing
+                    res.error += "label '" + onErrorTarget + "' not found ";
+                    break;
+                }
+            }
         }
         if (executed) res.linesRun++;
         if (defaultDelay && executed) delay(defaultDelay);
         if (!executed) res.linesRun--;   // don't count failures as executed lines
+        // LABEL lines are no-ops (targets for ON_ERROR JUMP)
+        if (cmd.equalsIgnoreCase("LABEL")) { /* no-op */ }
         i++;
     }
 
