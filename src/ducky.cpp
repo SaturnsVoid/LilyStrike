@@ -515,11 +515,23 @@ RunResult run(const String& scriptText, const String& name) {
             String pass = (sp2>0)?args.substring(sp2+1):String("");
             ssid.trim(); pass.trim();
             WiFi.mode(WIFI_AP_STA);                      // keep our AP alive too
+            // AP+STA stability: modem power-save + softAP is a known drop
+            // source; disable sleep and let the stack auto-reconnect.
+            WiFi.setSleep(WIFI_PS_NONE);
+            WiFi.setAutoReconnect(true);
+            WiFi.persistent(false);
             WiFi.begin(ssid.c_str(), pass.c_str());
             int tries = 0;
-            while (WiFi.status()!=WL_CONNECTED && tries++<20 && !g_stopRequested) delay(500);
+            while (WiFi.status()!=WL_CONNECTED && tries++<30 && !g_stopRequested) delay(500);
+            bool ok = WiFi.status()==WL_CONNECTED;
             logLine("[script:" + name + "] CONNECT_AP '" + ssid + "' " +
-                    (WiFi.status()==WL_CONNECTED ? "connected "+WiFi.localIP().toString() : "FAILED"));
+                    (ok ? "connected "+WiFi.localIP().toString() : "FAILED"));
+            if (ok) {
+                // Confirm stability: if it drops within 5s, report it
+                delay(5000);
+                if (WiFi.status()!=WL_CONNECTED)
+                    logLine("[script:" + name + "] CONNECT_AP: connection unstable - check channel/signal");
+            }
         }
         else if (cmd.equalsIgnoreCase("USB_STORAGE")) {
             // USB_STORAGE enable|disable - toggles the SD-over-USB interface.
