@@ -514,21 +514,34 @@ function setupPad(){
     }
   });
 }
-/* trackball/joystick: knob offset -> velocity */
+/* trackball/joystick: knob follows finger; offset from centre = velocity.
+   BUGFIX: the old version read dx/dy ONLY at pointerdown and had no
+   pointermove handler, so the knob never moved and velocity never changed. */
 let ballInt=null;
 function setupBall(){
   const ball=$("#ball"), knob=$("#knob");
-  let dragging=false;
+  let vel={x:0,y:0};
   const setKnob=(x,y)=>{ knob.style.left=`calc(50% + ${x}px)`; knob.style.top=`calc(50% + ${y}px)`; };
-  const stop=()=>{ dragging=false; setKnob(0,0); if(ballInt){clearInterval(ballInt);ballInt=null;} };
+  const clamp=v=>Math.max(-60,Math.min(60,v));
+  const stop=()=>{
+    vel={x:0,y:0}; setKnob(0,0);
+    if(ballInt){clearInterval(ballInt);ballInt=null;}
+  };
   ball.addEventListener("pointerdown",e=>{
-    dragging=true; ball.setPointerCapture(e.pointerId);
+    e.preventDefault();
+    ball.setPointerCapture(e.pointerId);
+    if(!ballInt) ballInt=setInterval(()=>{
+      if(vel.x||vel.y) mMove(vel.x,vel.y);
+    },50);
+  });
+  ball.addEventListener("pointermove",e=>{
+    e.preventDefault();
+    if(!ballInt) return;                       // only while dragging
     const r=ball.getBoundingClientRect();
-    const dx=Math.max(-55,Math.min(55,e.clientX-r.left-r.width/2));
-    const dy=Math.max(-55,Math.min(55,e.clientY-r.top-r.height/2));
+    const dx=clamp(e.clientX-r.left-r.width/2);
+    const dy=clamp(e.clientY-r.top-r.height/2);
+    vel={x:Math.round(dx/8), y:Math.round(dy/8)};
     setKnob(dx,dy);
-    if(ballInt)clearInterval(ballInt);
-    ballInt=setInterval(()=>{ mMove(Math.round(dx/10),Math.round(dy/10)); },50);
   });
   ball.addEventListener("pointerup",stop);
   ball.addEventListener("pointercancel",stop);
@@ -786,7 +799,7 @@ function settingsView(){
   </div>
   <div class="setcard"><h3>${icon("gauge")} Power Mode</h3>
     <p class="desc">CPU clock + WiFi transmit power. High may trip weak USB ports. Script DELAY timings change with clock speed — re-tune payloads when switching.</p>
-    <label>Mode<select id="powerMode" onchange="saveSys()">
+    <label>Mode<select id="powerMode" onchange="savePower()">
       <option value="0">Low — 80 MHz | 10 dBm (max stealth)</option>
       <option value="1">Normal — 160 MHz | 17 dBm</option>
       <option value="2">High — 240 MHz | 19.5 dBm</option>
@@ -794,18 +807,18 @@ function settingsView(){
   </div>
   <div class="setcard"><h3>${icon("os")} MAC Spoofing</h3>
     <p class="desc">Changes the MAC address the device presents over WiFi. Applies at next boot.</p>
-    <label>Mode<select id="macMode" onchange="saveSys()">
+    <label>Mode<select id="macMode" onchange="saveMac()">
       <option value="0">Hardware default</option>
       <option value="1">Randomize on every boot</option>
       <option value="2">Custom MAC</option>
     </select></label>
-    <label>Custom MAC (AA:BB:CC:DD:EE:FF)<input id="macCustom" placeholder="02:AB:CD:EF:11:22"></label>
+    <label>Custom MAC (AA:BB:CC:DD:EE:FF)<input id="macCustom" placeholder="02:AB:CD:EF:11:22" onchange="saveMac()"></label>
   </div>
   <div class="setcard"><h3>${icon("wifi")} External Access (Tunnel)</h3>
     <p class="desc">Reach this device's interface from outside its network via a relay. Host <b class="mono">tools/relay_server.py</b> on any VPS, then point the device here. Browser: <b class="mono">http://relay/t/&lt;token&gt;/</b></p>
-    <label>Relay URL<input id="tunnelUrl" placeholder="http://my-vps:5000"></label>
-    <label>Token<input id="tunnelToken" placeholder="shared secret"></label>
-    <label><input type="checkbox" id="tunnelEnabled" style="width:auto" onchange="saveSys()"> Enable tunnel when on an internet network</label>
+    <label>Relay URL<input id="tunnelUrl" placeholder="http://my-vps:5000" onchange="saveTunnel()"></label>
+    <label>Token (auto-generated; override if you like)<input id="tunnelToken" onchange="saveTunnel()"></label>
+    <label><input type="checkbox" id="tunnelEnabled" style="width:auto" onchange="saveTunnel()"> Enable tunnel when on an internet network</label>
   </div>
   <div class="setcard"><h3>${icon("gear")} Interface Availability</h3>
     <p class="desc">Temporarily disable the web interface (hold BOOT 1.5 s on next boot to re-enable). Permanent mode requires a firmware re-flash to undo.</p>
@@ -853,11 +866,30 @@ async function loadSettingsState(){
   }).catch(()=>{});
   loadSpoof();
 }
-async function saveSys(){
-  await jpost("/api/sys",{powerMode:+$("#powerMode").value, macMode:+$("#macMode").value,
-    macCustom:$("#macCustom").value, tunnelUrl:$("#tunnelUrl").value,
-    tunnelToken:$("#tunnelToken").value, tunnelEnabled:$("#tunnelEnabled").checked});
-  toast("Saved. Power mode applied now; MAC at next boot.");
+// Per-group saves: only the group the user touched is sent + toasted.
+let _lastSys = {};
+async function savePower(){
+  const v = +$("#powerMode").value;
+  if (_lastSys.powerMode === v) return;
+  _lastSys.powerMode = v;
+  await jpost("/api/sys",{powerMode:v});
+  toast("Power mode saved and applied");
+}
+async function saveMac(){
+  const mode = +$("#macMode").value, custom = $("#macCustom").value.trim();
+  if (_lastSys.macMode === mode && _lastSys.macCustom === custom) return;
+  _lastSys.macMode = mode; _lastSys.macCustom = custom;
+  await jpost("/api/sys",{macMode:mode, macCustom:custom});
+  toast("MAC saved — applies at next boot");
+}
+async function saveTunnel(){
+  const payload = {tunnelUrl:$("#tunnelUrl").value, tunnelToken:$("#tunnelToken").value,
+                   tunnelEnabled:$("#tunnelEnabled").checked};
+  const sig = JSON.stringify(payload);
+  if (_lastSys.tunnel === sig) return;
+  _lastSys.tunnel = sig;
+  await jpost("/api/sys", payload);
+  toast("Tunnel settings saved");
 }
 async function saveMsc(){
   await jpost("/api/msc",{thumb:+$("#thumbMode").value, storage:$("#usbStorage").checked});

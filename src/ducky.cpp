@@ -427,7 +427,7 @@ RunResult run(const String& scriptText, const String& name) {
                  cmd.equalsIgnoreCase("DEFAULT_DELAY")) { defaultDelay = constrain(args.toInt(),0,60000); }
         else if (cmd.equalsIgnoreCase("STRING"))        { typeString(substValues(args)); }
         else if (cmd.equalsIgnoreCase("STRINGLN"))      { typeString(substValues(args)); kb.press(KEY_RETURN); kb.release(KEY_RETURN); }
-        else if (cmd.equalsIgnoreCase("LOG"))           { logLine("[script:" + name + "] " + args); }
+        else if (cmd.equalsIgnoreCase("LOG"))           { logLine("[script:" + name + "] " + substValues(args)); }
 
         // ---- Step 2 custom commands ----
         else if (cmd.equalsIgnoreCase("DETECT_OS"))     {
@@ -457,9 +457,9 @@ RunResult run(const String& scriptText, const String& name) {
             if (hash >= 0) {
                 txt = args.substring(0, hash);
                 fg = args.substring(hash);
-                int hash2 = fg.indexOf('#', 1);
-                // (bg color accepted per plan but screenText uses fixed style in step 2)
             }
+            // Value commands work here too: SCREEN_TEXT IP: GET_IP #00FF00
+            txt = substValues(txt);
             txt.trim();
             hw::screenOn();
             hw::screenText(txt);

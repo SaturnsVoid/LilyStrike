@@ -28,6 +28,7 @@
 #include "power.h"
 #include "tunnel.h"
 #include <Preferences.h>
+#include <esp_mac.h>
 #include "tusb.h"   // tud_connected(): true once a host configures the device
 #include <SD_MMC.h>
 
@@ -77,8 +78,11 @@ static void applyMacSpoof() {
         for (int i = 0; i < 6; i++)
             mac[i] = (uint8_t)strtol(custom.substring(i*3, i*3+2).c_str(), nullptr, 16);
     } else return;
-    WiFi.macAddress(mac);              // STA
-    WiFi.softAPmacAddress(mac);        // AP (both look identical to victim)
+    // Arduino WiFi only EXPOSES getters - the real setter is the IDF base
+    // MAC, which must be applied before the radio starts. AP derives from
+    // base+1 automatically. (Calling WiFi.macAddress(mac) was a GETTER - the
+    // old code silently did nothing.)
+    esp_base_mac_addr_set(mac);
     logLine("MAC spoofed: " + WiFi.macAddress());
 }
 
@@ -116,9 +120,10 @@ void setup() {
     // good enough to tell "plugged into computer" from "powerbank".
     g_state.usbHostPresent = tud_connected();
 
+    power::load();
+    applyMacSpoof();                    // BEFORE softAP - base MAC seeds STA+AP
     web::begin();
-    power::load(); power::apply();      // CPU clock + TX power
-    applyMacSpoof();
+    power::apply();                     // CPU clock + TX power
 
     if (cfg.ledOnBoot) { RGB p = {0x80, 0x00, 0xC0}; hw::ledSet(p); }   // purple
 }
@@ -144,9 +149,10 @@ void loop() {
         else if (millis() - btnDownAt > 1500 && cfg.ifaceTempOff) {
             cfg.ifaceTempOff = false;              // re-enable just this boot
             configSaveInterfaceFlags();
-            web::begin();
-    power::load(); power::apply();      // CPU clock + TX power
-    applyMacSpoof();
+            power::load();
+    applyMacSpoof();                    // BEFORE softAP - base MAC seeds STA+AP
+    web::begin();
+    power::apply();                     // CPU clock + TX power
             logLine("btn: interface re-enabled");
             btnDownAt = 0xFFFFFFFF - 2000;         // don't retrigger
         }

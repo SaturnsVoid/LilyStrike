@@ -36,6 +36,7 @@
 #include "util.h"
 #include "spoof.h"
 #include <Preferences.h>
+#include <esp_system.h>
 #include "power.h"
 #include "detect_os.h"
 #include "sys.h"
@@ -43,6 +44,7 @@
 #include "evilap.h"
 #include "version.h"
 #include <Preferences.h>
+#include <esp_system.h>
 #include "power.h"
 #include <mbedtls/base64.h>
 #include <esp_system.h>
@@ -446,12 +448,22 @@ static void hSysGet() {
     String macCustom = p.getString("custom", "");
     p.end();
     Preferences t; t.begin("tunnel", true);
+    String tok = t.getString("token", "");
+    t.end();
+    if (tok.length() < 4) {
+        // First visit: generate a random token (still user-editable).
+        uint8_t rnd[8]; esp_fill_random(rnd, 8);
+        tok = "";
+        for (uint8_t b : rnd) { char hx[3]; snprintf(hx, 3, "%02x", b); tok += hx; }
+        Preferences tw; tw.begin("tunnel", false); tw.putString("token", tok); tw.end();
+    }
+    Preferences t2; t2.begin("tunnel", true);
     String j = String("{\"powerMode\":") + (int)power::mode() +
       ",\"macMode\":" + macMode +
       ",\"macCustom\":\"" + macCustom + "\"" +
       ",\"tunnelEnabled\":" + (t.getBool("on", false)?"true":"false") +
       ",\"tunnelUrl\":\"" + t.getString("url", "") + "\"" +
-      ",\"tunnelToken\":\"" + t.getString("token", "") + "\"}";
+      ",\"tunnelToken\":\"" + tok + "\"}";
     t.end();
     json(200, j);
 }
@@ -470,6 +482,7 @@ static void hSysSet() {
         Preferences p; p.begin("mac", false); p.putString("custom", v); p.end();
     }
     Preferences t; t.begin("tunnel", false);
+    if (extractJsonStr(body, "tunnelToken", v) && v.length()) t.putString("token", v);
     if (body.indexOf("\"tunnelEnabled\":true") >= 0)  t.putBool("on", true);
     if (body.indexOf("\"tunnelEnabled\":false") >= 0) t.putBool("on", false);
     if (extractJsonStr(body, "tunnelUrl", v))   t.putString("url", v);
