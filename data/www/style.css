@@ -150,7 +150,11 @@ th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5p
 [data-theme="light"] .tok-rem{color:#9ca3af}
 [data-theme="light"] .tok-num{color:#b45309}
 [data-theme="light"] #code{color:transparent}
-@media(max-width:760px){.ide{flex-direction:column}
+@media(max-width:760px){
+  .key{min-width:26px;height:30px;font-size:10px}
+  .kbrow{overflow-x:auto;justify-content:flex-start}
+  .live-sec{min-width:100%}
+  .ide{flex-direction:column}
   .script-list{width:100%;max-height:140px;flex-direction:row;flex-wrap:wrap}
   .script-list .sl-head{width:100%}
   .script-list button.sfile{width:auto;border:1px solid var(--border);border-radius:6px;margin:2px}

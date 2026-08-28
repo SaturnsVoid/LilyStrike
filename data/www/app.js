@@ -28,6 +28,7 @@ const ICONS = {
   gauge:'<path d="M12 4a8 8 0 0 1 8 8h-3a5 5 0 0 0-10 0H4a8 8 0 0 1 8-8Zm1.4 6.6 3-3 1.4 1.4-3 3a2 2 0 1 1-1.4-1.4Z" fill="currentColor"/>',
   gear:'<path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm9 4-2 1 .3 2.1-1.8 1.8-2.1-.3-1 1.8-2.1.4-1.3 1.7-2.6.1L9.4 20l-2.1-.4-1-1.8-2.1.3-1.8-1.8.3-2.1-2-1v-2.4l2-1-.3-2.1L4.2 5.9l2.1.3 1-1.8 2.1-.4L10.7 2.3l2.6-.1 1.3 1.7 2.1-.4 1 1.8 2.1-.3 1.8 1.8-.3 2.1 2 1V12Z" fill="currentColor"/>',
   bolt:'<path d="M13 2 4.5 13.5H11L9.5 22 19.5 9.5H12.5L13 2Z" fill="currentColor"/>',
+  os:'<rect x="3" y="4" width="18" height="12" rx="2" fill="currentColor"/><path d="M8 20h8l-1-3H9l-1 3Z" fill="currentColor"/>',
   script:'<path d="M6 2h8l4 4v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z" fill="currentColor"/><text x="8" y="17" font-size="9" fill="#fff" font-family="monospace">ds</text>',
 };
 const icon = (n,s=16) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none">${ICONS[n]||ICONS.file}</svg>`;
@@ -110,12 +111,18 @@ async function checkEula() {
       <div class="row-end"><button class="primary" id="eulaBtn" disabled
         onclick="window._eulaGo()">Agree &amp; Continue</button></div>`);
     const box = $("#eulaBox"), chk = $("#eulaChk"), btn = $("#eulaBtn");
-    box.onscroll = () => {
-      if (box.scrollTop + box.clientHeight >= box.scrollHeight - 8) {
-        chk.disabled = false;
-        chk.onchange = () => btn.disabled = !chk.checked;
-      }
+    const unlock = () => {
+      if (!chk.disabled) return;
+      chk.disabled = false;
+      chk.onchange = () => btn.disabled = !chk.checked;
+      btn.disabled = !chk.checked;
     };
+    box.addEventListener("scroll", () => {
+      if (box.scrollTop + box.clientHeight >= box.scrollHeight - 24) unlock();
+    });
+    // fallback for touch/odd browsers: any interaction + 1.5s also unlocks
+    box.addEventListener("touchmove", () => setTimeout(unlock, 1500), {passive:true});
+    box.addEventListener("wheel", () => setTimeout(unlock, 1500), {passive:true});
     window._eulaGo = async () => {
       await jpost("/api/eula", {agreed:true});
       $("#modalHost").innerHTML = "";
@@ -130,19 +137,19 @@ function toolsView() {
   view.innerHTML = `
   <div class="panel">
     <h2>${icon("bolt")} BadUSB &mdash; Script Studio</h2>
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <button class="small" onclick="saveScript()">${icon("file",13)} Save</button>
+      <button class="small danger" onclick="delScript()">Delete</button>
+      <span style="flex:1"></span>
+      <button class="small ok primary" id="runBtn" onclick="runScript()">&#9654; Run</button>
+      <button class="small danger" id="stopBtn" onclick="api('/api/stop',{method:'POST'})"
+        style="display:none">&#9632; Stop</button>
+    </div>
     <div class="ide">
       <div class="script-list" id="scriptList">
         <div class="sl-head">Scripts <button class="small" onclick="newScript()">+</button></div>
       </div>
       <div style="flex:1;min-width:0">
-        <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
-          <button class="small" onclick="saveScript()">${icon("file",13)} Save</button>
-          <button class="small danger" onclick="delScript()">Delete</button>
-          <span style="flex:1"></span>
-          <button class="small ok primary" id="runBtn" onclick="runScript()">&#9654; Run</button>
-          <button class="small danger" id="stopBtn" onclick="api('/api/stop',{method:'POST'})"
-            style="display:none">&#9632; Stop</button>
-        </div>
         <div class="editor-wrap">
           <pre id="gutter">1</pre>
           <div class="editor-stack">
@@ -171,7 +178,6 @@ function toolsView() {
   code.addEventListener("input", () => { highlight(); syncScroll(); });
   code.addEventListener("scroll", syncScroll);
   highlight(); syncScroll();
-  refreshScripts();
   refreshScriptFiles();
 }
 
@@ -217,14 +223,22 @@ setInterval(async()=>{
 },2000);
 
 /* -------- script file list (sidebar) -------- */
-async function refreshScriptFiles(){
-  const list = await api("/api/scripts");
-  const box = $("#scriptList");
-  box.innerHTML = `<div class="sl-head">Scripts <button class="small" onclick="newScript()">+</button></div>` +
-    list.map(s=>`<button class="sfile ${s.name===curScript?"active":""}"
-      onclick="loadScript('${esc(s.name)}')">${icon("script",13)} ${esc(s.name)}</button>`).join("");
-  $("#autoPick").innerHTML = list.map(s=>`<option>${esc(s.name)}</option>`).join("");
-  renderAuto();
+let _scriptsLoaded=false;
+async function refreshScriptFiles(retry=true){
+  try{
+    const list = await api("/api/scripts");
+    const box = $("#scriptList");
+    if(!box) return;
+    box.innerHTML = `<div class="sl-head">Scripts <button class="small" onclick="newScript()">+</button></div>` +
+      list.map(s=>`<button class="sfile ${s.name===curScript?"active":""}"
+        onclick="loadScript('${esc(s.name)}')">${icon("script",13)} ${esc(s.name)}</button>`).join("")
+      || `<div class="sl-head" style="font-weight:400">No scripts yet</div>`;
+    const pick=$("#autoPick"); if(pick) pick.innerHTML = list.map(s=>`<option>${esc(s.name)}</option>`).join("");
+    _scriptsLoaded=true;
+    renderAuto();
+  }catch(e){
+    if(retry) setTimeout(()=>refreshScriptFiles(false), 800);   // one retry (SD can be slow at boot)
+  }
 }
 async function loadScript(n){
   if (typeof n !== "string") return;
@@ -408,6 +422,11 @@ function controlView(){
   view.innerHTML=`<div class="panel"><h2>${icon("keyboard")} Live Control</h2>
    <p class="muted">Control the host computer directly. Modifier buttons are sticky.</p>
    <div class="live-wrap">
+    <div class="live-sec" style="max-width:230px;order:3">
+      <h3 style="font-size:13px;color:var(--muted)">HOST LOCK KEYS</h3>
+      <div class="lockbox" id="lockKeys">(no reports yet)</div>
+      <p class="muted" style="font-size:11.5px;margin-top:8px">Live from host LED reports. Toggle caps lock on the host once to activate.</p>
+    </div>
     <div class="live-sec">
       <h3 style="font-size:13px;color:var(--muted)">KEYBOARD</h3>
       <div style="display:flex;gap:4px;justify-content:center;margin-bottom:6px" id="mods">
@@ -437,11 +456,6 @@ function controlView(){
         <span class="muted" style="margin:0 8px">scroll</span>
         <button class="key" onclick="mScroll(-1)">&#9660;</button>
       </div>
-    </div>
-    <div class="live-sec" style="max-width:220px">
-      <h3 style="font-size:13px;color:var(--muted)">HOST LOCK KEYS</h3>
-      <div class="lockbox" id="lockKeys">(no reports yet)</div>
-      <p class="muted" style="font-size:11.5px;margin-top:8px">Live from host LED reports. Toggle caps lock on the host once to activate.</p>
     </div>
    </div></div>`;
   document.querySelectorAll("#kbd .key").forEach(b=>{
@@ -551,10 +565,12 @@ function evilapView(){
    </div></div>
   <div class="panel"><h2>Capture Statistics</h2><table>
    <tr><td>Portal hits</td><td id="eHits">-</td></tr>
-   <tr><td>Credentials captured</td><td id="eCaps">-
-     <button class="small" onclick="showCreds()">View</button>
-     <button class="small danger" onclick="clearCreds()">Clear</button></td></tr></table>
-   <pre id="credsBox" style="display:none;margin-top:8px;background:var(--code-bg);padding:10px;border-radius:8px;max-height:220px;overflow:auto" class="mono"></pre></div>
+   <tr><td>Credentials captured</td><td id="eCaps">-</td></tr></table>
+   <div style="display:flex;gap:8px;margin-top:10px">
+     <button class="small primary" onclick="showCreds()">View captured logins</button>
+     <button class="small danger" onclick="clearCreds()">Clear captured logins</button>
+   </div>
+   <pre id="credsBox" style="display:none;margin-top:10px;background:var(--code-bg);padding:10px;border-radius:8px;max-height:240px;overflow:auto" class="mono"></pre></div>
   <div class="panel"><h2>Custom Portal Page</h2>
    <p class="muted">Stored encrypted as /portal.html.enc on the SD card. Overrides any template.</p>
    <textarea id="evilHtml" rows="11" class="mono" placeholder="<html>...custom login page..."></textarea>
@@ -693,14 +709,6 @@ function statusView(){
   <div class="panel"><h2>${icon("file")} Debug Log</h2>
     <button class="small" onclick="refreshLog()">Refresh</button>
     <pre id="logBox" style="max-height:280px;overflow:auto;background:var(--code-bg);padding:10px;border-radius:8px;margin-top:10px" class="mono"></pre></div>
-  <div class="panel"><h2>${icon("bolt")} Danger Zone</h2>
-    <div style="display:flex;gap:10px;flex-wrap:wrap">
-      <button class="danger" onclick="doReboot()">Reboot</button>
-      <button class="danger" onclick="doReset()">Reset Firmware Settings</button>
-      <button class="danger" onclick="doFormat()">Wipe Micro-SD</button>
-    </div>
-    <p class="err" style="font-size:12.5px;margin:12px 0 6px">Self destruct wipes settings, web files, SD card AND the firmware itself. Recovery only by re-flashing. Last-resort failsafe.</p>
-    <button class="danger" onclick="doDestroy()">SELF DESTRUCT</button>
   </div>`;
   refreshStatus(); statusTimer=setInterval(refreshStatus,2000); refreshLog();
 }
@@ -724,7 +732,7 @@ async function refreshStatus(){
    <tr><td>CPU</td><td>${s.cpuMhz} MHz</td></tr>
    <tr><td>Uptime</td><td>${hh}h ${mm}m ${ss}s</td></tr>
    <tr><td>SD Free</td><td>${s.sdTotal?((s.sdFree/1048576).toFixed(1)+" / "+(s.sdTotal/1048576).toFixed(1)+" MB"):"not detected"}</td></tr>
-   <tr><td>Connection</td><td>${s.usbHost?"Plugged into computer":"Power only"}${s.detectedOS&&s.detectedOS!=="Unknown"?" — "+esc(s.detectedOS):""}</td></tr>
+   <tr><td>Connection</td><td>${s.usbHost?"Plugged into computer":"Power only"}${s.detectedOS&&s.detectedOS!=="Unknown"?` — <span style="color:var(--accent)">${icon("os",15)}</span> ${esc(s.detectedOS)}`:""}</td></tr>
    <tr><td>WiFi AP</td><td>${s.ip} (${s.wifiClients} client(s))</td></tr>
    <tr><td>Script</td><td><span class="badge ${st[0]}">${st[1]}</span> ${esc(s.scriptName)}</td></tr>`;
 }
@@ -787,6 +795,17 @@ function settingsView(){
     <label><input type="checkbox" id="tempOff" style="width:auto"> Temporarily disable web interface</label>
     <p class="err" style="font-size:12px">Permanent disable is irreversible without a re-flash!</p>
     <button class="danger" onclick="permDisable()">Enable Permanent Disable</button>
+  </div>
+  </div>
+  <div class="setcard" style="margin-top:14px;border-color:var(--err)">
+    <h3 style="color:var(--err)">${icon("bolt")} System / Danger Zone</h3>
+    <p class="desc">Destructive operations. Self destruct wipes settings, web files, SD card AND the firmware itself — recovery only by re-flashing.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="danger" onclick="doReboot()">Reboot</button>
+      <button class="danger" onclick="doReset()">Reset Firmware Settings</button>
+      <button class="danger" onclick="doFormat()">Wipe Micro-SD</button>
+      <button class="danger" onclick="doDestroy()">SELF DESTRUCT</button>
+    </div>
   </div>
   </div>
   <div style="margin-top:16px"><button class="primary" onclick="saveSettings()">Save Settings</button></div>`;
@@ -937,7 +956,7 @@ SCREEN_OFF`],
 
 /* ============================== ROUTER ================================ */
 const NAV=[
- ["tools","Tools","bolt"],["files","Files","folder"],
+ ["tools","BadUSB","bolt"],["files","Files","folder"],
  ["control","Live Control","keyboard"],["evilap","EvilAP","wifi"],
  ["reference","Reference","book"],["status","Status","gauge"],
  ["settings","Settings","gear"],
