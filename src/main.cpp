@@ -162,6 +162,10 @@ void loop() {
         else if (millis() - evilBtnAt > 1500) { evilap::stop(); evilBtnAt = 0; }
     } else evilBtnAt = 0;
     delay(2);
+    // Network services: relay tunnel + script scheduler (cheap no-ops when
+    // offline / disabled).
+    tunnel::loadAndMaybeStart();
+    scheduler::handle();
 
     // ---- BOOT button -------------------------------------------------------
     // If the interface was temporarily disabled, holding BOOT re-enables it
@@ -172,16 +176,6 @@ void loop() {
         else if (millis() - btnDownAt > 1500 && cfg.ifaceTempOff) {
             cfg.ifaceTempOff = false;              // re-enable just this boot
             configSaveInterfaceFlags();
-            power::load();
-    applyMacSpoof();                    // BEFORE softAP - base MAC seeds STA+AP
-    // UI is up -> boot counted as successful; clear the crash counter.
-    {
-        Preferences p; p.begin("safemode", false);
-        p.putULong("count", 0);
-        p.end();
-    }
-    web::begin();
-    if (g_state.safeMode) logLine("safe mode: fix settings, reboot to restore your config");    power::apply();                     // CPU clock + TX power
             logLine("btn: interface re-enabled");
             btnDownAt = 0xFFFFFFFF - 2000;         // don't retrigger
         }

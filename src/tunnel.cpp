@@ -13,6 +13,7 @@
 #include "crypt.h"
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include "util.h"
 #include <mbedtls/base64.h>
 #include <string>
 #include <Preferences.h>
@@ -110,7 +111,6 @@ static void tunnelTask(void*) {
             String job = http.getString();
             http.end();
             // crude JSON field pulls (device only ever talks to OUR relay)
-            extern bool extractJsonStr(const String&, const char*, String&);
             String method, path, body;
             extractJsonStr(job, "method", method);
             extractJsonStr(job, "path", path);

@@ -11,6 +11,7 @@
 #include "config.h"
 #include "crypt.h"
 #include "ducky.h"
+#include "util.h"
 #include <SD_MMC.h>
 #include <time.h>
 #include <WiFi.h>
@@ -83,7 +84,6 @@ static void runScript(const String& name) {
     String meta;
     if (decryptFromFile(("/scripts/" + name + ".meta").c_str(), meta)) {
         String layout;
-        extern bool extractJsonStr(const String&, const char*, String&);
         extractJsonStr(meta, "layout", layout);
         if (layout.length()) ducky::setLayout(layout);
     }
