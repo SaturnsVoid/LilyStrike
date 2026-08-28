@@ -42,6 +42,8 @@
 #include "sys.h"
 #include "msc.h"
 #include "evilap.h"
+#include "tunnel.h"
+#include "scheduler.h"
 #include "version.h"
 #include <ESPmDNS.h>
 #include <Preferences.h>
@@ -549,6 +551,40 @@ static void hEulaSet() {
     json(200, "{\"ok\":true}");
 }
 
+// ---- Script scheduler (cron-lite) ---------------------------------------------
+static void hSchedGet() {
+    requireAuth(); if (!isAuthed()) return;
+    json(200, scheduler::statusJson());
+}
+static void hSchedAdd() {
+    requireAuth(); if (!isAuthed()) return;
+    String body = server.arg("plain"), script;
+    long interval = extractJsonNum(body, "intervalMin", 0);
+    long at = extractJsonNum(body, "at", 0);
+    if (!extractJsonStr(body, "script", script) || !script.length())
+        return jsonErr(400, "script required");
+    if (interval <= 0 && at <= 0) return jsonErr(400, "need intervalMin or at");
+    scheduler::Entry e;
+    e.script = sanitizeName(script);
+    e.intervalMin = (interval > 0) ? (uint32_t)interval : 0;
+    e.atEpoch = (uint32_t)at;
+    e.lastRunEpoch = 0;
+    scheduler::add(e);
+    logLine("scheduler: + " + e.script);
+    json(200, scheduler::statusJson());
+}
+static void hSchedDelete() {
+    requireAuth(); if (!isAuthed()) return;
+    long idx = extractJsonNum(server.arg("plain"), "index", -1);
+    if (idx < 0 || !scheduler::remove((size_t)idx)) return jsonErr(400, "bad index");
+    json(200, scheduler::statusJson());
+}
+static void hSchedClear() {
+    requireAuth(); if (!isAuthed()) return;
+    scheduler::clearAll();
+    json(200, "[]");
+}
+
 // ---- WiFi scanner (recon + diagnostics) ---------------------------------------
 static void hWifiScan() {
     requireAuth(); if (!isAuthed()) return;
@@ -925,6 +961,10 @@ bool begin() {
     server.on("/api/scriptmeta", HTTP_GET, hScriptMetaGet);
     server.on("/api/scriptmeta", HTTP_POST, hScriptMetaSet);
     server.on("/api/layouts", HTTP_GET, hLayouts);
+    server.on("/api/sched", HTTP_GET, hSchedGet);
+    server.on("/api/sched", HTTP_POST, hSchedAdd);
+    server.on("/api/sched", HTTP_DELETE, hSchedDelete);
+    server.on("/api/sched/clear", HTTP_POST, hSchedClear);
     server.on("/api/wifiscan", HTTP_GET, hWifiScan);
     server.on("/api/sys", HTTP_GET, hSysGet);
     server.on("/api/sys", HTTP_POST, hSysSet);

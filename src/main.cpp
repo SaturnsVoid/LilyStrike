@@ -27,6 +27,7 @@
 #include "version.h"
 #include "power.h"
 #include "tunnel.h"
+#include "scheduler.h"
 #include <Preferences.h>
 #include <esp_mac.h>
 #include "tusb.h"   // tud_connected(): true once a host configures the device

@@ -161,6 +161,20 @@ function toolsView() {
     </div>
   </div>
 
+  <div class="panel"><h2>${icon("gauge")} Script Scheduler <span class="muted" style="font-size:12px">(cron-lite; needs client network + NTP time)</span></h2>
+    <div id="schedList"></div>
+    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">
+      <select id="schedScript" style="width:auto"></select>
+      <select id="schedType" style="width:auto" onchange="schedTypeChange()">
+        <option value="interval">Every N minutes</option>
+        <option value="once">Once at epoch time</option>
+      </select>
+      <input id="schedInterval" type="number" min="1" value="60" style="max-width:90px" title="minutes">
+      <input id="schedAt" type="datetime-local" style="max-width:200px;display:none">
+      <button class="small primary" onclick="addSched()">Add schedule</button>
+    </div>
+  </div>
+
   <div class="panel"><h2>${icon("bolt")} Autostart Queue <span class="muted" style="font-size:12px">(max 5, runs in order on plug-in)</span></h2>
     <div id="autoList"></div>
     <div style="display:flex;gap:8px;margin-top:8px">
@@ -221,6 +235,44 @@ setInterval(async()=>{
 
 /* -------- script file list (sidebar) -------- */
 let _scriptsLoaded=false;
+async function refreshSched(){
+  try{
+    const list = await api("/api/sched");
+    const box=$("#schedList"); if(!box) return;
+    box.innerHTML = list.map((e,i)=>`
+      <div class="auto-item">
+        <span class="ord">${i+1}</span>${icon("script",13)}
+        <span>${esc(e.script)}
+          <small class="muted" style="display:block">
+            ${e.interval>0 ? "every "+e.interval+" min" : "one-shot at "+(new Date(e.at*1000).toLocaleString())}
+            ${e.last?` · last run ${new Date(e.last*1000).toLocaleTimeString()}`:""}
+          </small></span>
+        <button class="small danger" onclick="delSched(${i})">&#10005;</button>
+      </div>`).join("") || `<p class="muted" style="font-size:13px">No scheduled scripts.</p>`;
+  }catch(e){}
+}
+function schedTypeChange(){
+  const once=$("#schedType").value==="once";
+  $("#schedInterval").style.display=once?"none":"";
+  $("#schedAt").style.display=once?"":"none";
+}
+async function addSched(){
+  const script=$("#schedScript").value; if(!script) return toast("Pick a script","err");
+  let body;
+  if($("#schedType").value==="once"){
+    const v=$("#schedAt").value; if(!v) return toast("Pick a date/time","err");
+    body={script, at: Math.floor(new Date(v).getTime()/1000)};
+  } else {
+    const m=+$("#schedInterval").value; if(!m||m<1) return toast("Interval must be >= 1 min","err");
+    body={script, intervalMin:m};
+  }
+  await jpost("/api/sched", body);
+  toast("Scheduled "+script); refreshSched();
+}
+async function delSched(i){
+  await api("/api/sched",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({index:i})});
+  refreshSched();
+}
 async function refreshScriptFiles(retry=true){
   try{
     const list = await api("/api/scripts");
@@ -233,8 +285,9 @@ async function refreshScriptFiles(retry=true){
         <span>${esc(s.name)}${s.desc?`<br><small style="color:var(--muted);font-weight:400">${esc(s.desc)}</small>`:""}</span></button>`).join("")
       || `<div class="sl-head" style="font-weight:400">No scripts yet</div>`;
     const pick=$("#autoPick"); if(pick) pick.innerHTML = list.map(s=>`<option>${esc(s.name)}</option>`).join("");
+    const sp=$("#schedScript"); if(sp) sp.innerHTML = list.map(s=>`<option>${esc(s.name)}</option>`).join("");
     _scriptsLoaded=true;
-    renderAuto();
+    renderAuto(); refreshSched();
   }catch(e){
     if(retry) setTimeout(()=>refreshScriptFiles(false), 800);   // one retry (SD can be slow at boot)
   }
