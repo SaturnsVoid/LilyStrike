@@ -98,6 +98,8 @@ void logLine(const String& s) {
     Serial.println("[LOG] " + entry);
 }
 
+void bootBtnAbortReset() { g_state.bootBtnAbort = false; }
+
 String logGetAll() {
     if (!s_logMtx) return "";
     String out;

@@ -58,6 +58,7 @@ struct RuntimeState {
     String      detectedOS = "Unknown";   // Step 2: last DETECT_OS result
     bool        thumbMode = false;        // Step 3: running as false thumbdrive
     bool        evilApRunning = false;    // Step 3: portal active
+    bool        bootBtnAbort = false;     // Step 3b: abort long WiFi ops
     bool        safeMode = false;         // Step 4x: crash-loop fallback active
 };
 extern RuntimeState g_state;
@@ -68,3 +69,4 @@ extern RuntimeState g_state;
 #define LOG_LINES 40
 void logLine(const String& s);            // add to RAM ring + SD (encrypted)
 String logGetAll();                       // newline-joined RAM log for web UI
+void bootBtnAbortReset();                 // clear abort flag after handling
