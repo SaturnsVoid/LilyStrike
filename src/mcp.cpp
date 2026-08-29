@@ -83,6 +83,27 @@ static String argStr(const String& body, const char* key) {
 static long argNum(const String& body, const char* key, long def) {
     return extractJsonNum(body, key, def);
 }
+// tools/call args live in params.arguments; searching the whole body matches
+// the TOOL name first ("run_script") instead of the argument ("light_show.ds").
+static String argsBody(const String& body) {
+    int i = body.indexOf("\"arguments\"");
+    if (i < 0) return "{}";
+    int ob = body.indexOf('{', i);
+    if (ob < 0) return "{}";
+    // find matching close brace (arguments is flat in our schemas)
+    int depth = 0;
+    for (int p = ob; p < (int)body.length(); p++) {
+        if (body[p] == '{') depth++;
+        else if (body[p] == '}') { depth--; if (!depth) return body.substring(ob, p+1); }
+    }
+    return "{}";
+}
+static String argStrA(const String& body, const char* key) {
+    return argStr(argsBody(body), key);
+}
+static long argNumA(const String& body, const char* key, long def) {
+    return extractJsonNum(argsBody(body), key, def);
+}
 
 // ---------------------------------------------------------------- tool defs
 static const char* TOOL_SCHEMAS = R"MCPTOOLS([
@@ -104,6 +125,7 @@ static const char* TOOL_SCHEMAS = R"MCPTOOLS([
 static String sysSet(const String& body);   // defined below (system_config)
 void duckyRunAsync(const String& text, const String& name);
 static String toolCall(const String& name, const String& body) {
+    const String& A = body;   // argsBody applied below via helpers
     WebServer* srv = webServerPtr();
     if (name == "device_status") {
         // Reuse the status JSON builder logic inline (compact subset)
@@ -122,7 +144,7 @@ static String toolCall(const String& name, const String& body) {
         return toolText(s);
     }
     if (name == "run_script") {
-        String sn = argStr(body, "name"), text = argStr(body, "text");
+        String sn = argStrA(body, "name"), text = argStrA(body, "text");
         if (!sn.length() && !text.length()) return toolText("error: need name or text");
         if (ducky::isRunning()) return toolText("error: a script is already running; poll device_status");
         if (sn.length() && !text.length()) {
@@ -152,8 +174,8 @@ static String toolCall(const String& name, const String& body) {
         return toolText(out + "]");
     }
     if (name == "write_script") {
-        String sn = argStr(body, "name"), text = argStr(body, "text");
-        String desc = argStr(body, "desc"), layout = argStr(body, "layout");
+        String sn = argStrA(body, "name"), text = argStrA(body, "text");
+        String desc = argStrA(body, "desc"), layout = argStrA(body, "layout");
         if (!sn.length() || !text.length()) return toolText("error: need name + text");
         if (!sn.endsWith(".ds")) sn += ".ds";
         sn.replace("/", "");
@@ -165,7 +187,7 @@ static String toolCall(const String& name, const String& body) {
         return toolText(ok ? "saved " + sn : "error: SD write failed");
     }
     if (name == "read_script") {
-        String sn = argStr(body, "name");
+        String sn = argStrA(body, "name");
         if (!sn.length()) return toolText("error: need name");
         if (!sn.endsWith(".ds")) sn += ".ds";
         String t;
@@ -173,7 +195,7 @@ static String toolCall(const String& name, const String& body) {
         return toolText(t);
     }
     if (name == "keystroke") {
-        String k = argStr(body, "key");
+        String k = argStrA(body, "key");
         if (!k.length()) return toolText("error: need key");
         // single named key or char
         extern void duckyTapKey(const String& key);   // see bottom
@@ -181,9 +203,9 @@ static String toolCall(const String& name, const String& body) {
         return toolText("tapped " + k);
     }
     if (name == "mouse") {
-        long dx = argNum(body, "dx", 0), dy = argNum(body, "dy", 0);
-        String click = argStr(body, "click");
-        long scroll = argNum(body, "scroll", 0);
+        long dx = argNumA(body, "dx", 0), dy = argNumA(body, "dy", 0);
+        String click = argStrA(body, "click");
+        long scroll = argNumA(body, "scroll", 0);
         if (click.length()) { extern void duckyMouseClick(const String& b); duckyMouseClick(click); }
         if (dx || dy) { extern void duckyMouseMove(int, int); duckyMouseMove((int)dx,(int)dy); }
         if (scroll) { extern void duckyMouseScroll(int); duckyMouseScroll((int)scroll); }
@@ -205,19 +227,19 @@ static String toolCall(const String& name, const String& body) {
         return toolText(out + "]");
     }
     if (name == "led") {
-        if (argStr(body, "off") == "true" || argNum(body,"off",0)==1) { hw::ledOff(); return toolText("off"); }
-        String c = argStr(body, "color");
+        if (argStrA(body, "off") == "true" || argNumA(body,"off",0)==1) { hw::ledOff(); return toolText("off"); }
+        String c = argStrA(body, "color");
         if (c.length() != 7 || c[0] != '#') return toolText("error: color like #RRGGBB");
         auto nyb=[](char ch){ return (ch>='0'&&ch<='9')?ch-'0':(ch|32)-'a'+10; };
         hw::ledSet({(uint8_t)(nyb(c[1])*16+nyb(c[2])),(uint8_t)(nyb(c[3])*16+nyb(c[4])),(uint8_t)(nyb(c[5])*16+nyb(c[6]))});
         return toolText("set " + c);
     }
     if (name == "screen") {
-        String a2 = argStr(body, "action");
+        String a2 = argStrA(body, "action");
         if (a2=="on") hw::screenOn();
         else if (a2=="off") hw::screenOff();
         else if (a2=="clear") hw::screenClear();
-        else if (a2=="text") { hw::screenOn(); hw::screenText(argStr(body,"text")); }
+        else if (a2=="text") { hw::screenOn(); hw::screenText(argStrA(body,"text")); }
         else return toolText("error: action on|off|clear|text");
         return toolText(a2);
     }
