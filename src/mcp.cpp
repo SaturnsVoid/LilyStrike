@@ -330,7 +330,7 @@ void setEnabled(bool on) {
 }
 void load() {
     Preferences p; p.begin("mcp", true);
-    s_enabled = p.getBool("on", true);
+    s_enabled = p.getBool("on", false);   // default OFF - opt-in feature
     p.end();
 }
 uint32_t totalCalls() { return s_callsTotal; }

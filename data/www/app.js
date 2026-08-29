@@ -870,7 +870,7 @@ async function refreshLog(){ const b=$("#logBox"); if(b) b.textContent=await api
 
 /* =========================== SETTINGS VIEW ============================ */
 function settingsView(){
-  view.innerHTML=`
+  view.innerHTML=`<form id="settingsForm" onsubmit="event.preventDefault();saveSettings();">
   <div class="setgrid">
   <div class="setcard"><h3>${icon("wifi")} WiFi Access Point</h3>
     <p class="desc">The management network this device broadcasts for browser access. Applies after reboot.</p>
@@ -969,7 +969,8 @@ function settingsView(){
     </div>
   </div>
   </div>
-  <div style="margin-top:16px"><button class="primary" onclick="saveSettings()">Save Settings</button></div>`;
+  <div style="margin-top:16px"><button type="submit" class="primary">Save Settings</button></div>
+  </form>`;
   loadSettingsState();
 }
 async function loadSettingsState(){
@@ -982,10 +983,12 @@ async function loadSettingsState(){
     $("#ledOnBoot").checked=!!s.ledOnBoot;
     $("#brightness").value=s.brightness??128;
     $("#autoDetectOS").checked=!!s.autoDetectOS;
-    if(s.permOff) toast("Interface is PERMANENTLY disabled (on reboot)","err");
+      if(s.permOff) toast("Interface is PERMANENTLY disabled (on reboot)","err");
+    $("#mcpEnabled").checked=!!s.mcpEnabled;
+    $("#mcpToken").value=s.mcpToken||"";
+    $("#mcpEnabled").checked=!!s.mcpEnabled;
+    $("#mcpToken").value=s.mcpToken||"";
   }catch(e){}
-  $("#mcpEnabled").checked=!!s.mcpEnabled;
-  $("#mcpToken").value=s.mcpToken||"";
   api("/api/sys").then(c=>{
     $("#powerMode").value=String(c.powerMode);
     $("#macMode").value=String(c.macMode);
