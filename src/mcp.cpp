@@ -245,9 +245,13 @@ static String sysSet(const String& body) {
 // ---------------------------------------------------------------- handler
 static void handleMcp() {
     WebServer* srv = webServerPtr();
-    // auth
-    if (!srv->hasHeader("X-MCP-Token") ||
-        srv->header("X-MCP-Token") != token()) {
+    // auth: header OR ?token= query param (dumb clients can't set headers)
+    bool authed = false;
+    if (srv->hasHeader("X-MCP-Token") && srv->header("X-MCP-Token") == token())
+        authed = true;
+    if (!authed && srv->hasArg("token") && srv->arg("token") == token())
+        authed = true;
+    if (!authed) {
         jsonError(401, -32001, "bad or missing X-MCP-Token");
         return;
     }
