@@ -870,12 +870,15 @@ async function refreshLog(){ const b=$("#logBox"); if(b) b.textContent=await api
 
 /* =========================== SETTINGS VIEW ============================ */
 function settingsView(){
-  view.innerHTML=`<form id="settingsForm" onsubmit="event.preventDefault();saveSettings();">
+  // No <form> wrapper: the page contains many independent actions (per-card
+  // saves), which Chrome flags as "multiple forms should be separate". All
+  // saves are explicit button/XHR actions anyway.
+  view.innerHTML=`
   <div class="setgrid">
   <div class="setcard"><h3>${icon("wifi")} WiFi Access Point</h3>
     <p class="desc">The management network this device broadcasts for browser access. Applies after reboot.</p>
     <label>SSID<input id="ssid"></label>
-    <label>Password<input id="wifiPass" type="password"></label>
+    <label>Password<input id="wifiPass" type="password" autocomplete="new-password" onkeydown="if(event.key==='Enter')event.preventDefault()"></label>
     <label>Hostname (device reachable at &lt;hostname&gt;.local on networks it joins)
       <input id="hostname" placeholder="lilystrike"></label>
     <label><input type="checkbox" id="wifiHidden" style="width:auto"> Hidden SSID — won't broadcast; join manually</label>
@@ -883,11 +886,11 @@ function settingsView(){
   <div class="setcard"><h3>${icon("gauge")} Login Credentials</h3>
     <p class="desc">Web interface login. Leave a box empty to keep the current value.</p>
     <label>Username<input id="user"></label>
-    <label>Password<input id="webPass" type="password"></label>
+    <label>Password<input id="webPass" type="password" autocomplete="new-password" onkeydown="if(event.key==='Enter')event.preventDefault()"></label>
   </div>
   <div class="setcard"><h3>${icon("file")} Encryption Password</h3>
     <p class="desc">Encrypts scripts, logs and captured data on the SD card (AES-256-GCM). Changing it makes previously stored files unreadable.</p>
-    <label>Password<input id="encPassword" type="password"></label>
+    <label>Password<input id="encPassword" type="password" autocomplete="new-password" onkeydown="if(event.key==='Enter')event.preventDefault()"></label>
   </div>
   <div class="setcard"><h3>${icon("bolt")} Hardware Defaults</h3>
     <p class="desc">Boot behavior of the screen and LED. Stealth by default: everything off.</p>
@@ -969,8 +972,7 @@ function settingsView(){
     </div>
   </div>
   </div>
-  <div style="margin-top:16px"><button type="submit" class="primary">Save Settings</button></div>
-  </form>`;
+  <div style="margin-top:16px"><button class="primary" onclick="saveSettings()">Save Settings</button></div>`;
   loadSettingsState();
 }
 async function loadSettingsState(){
