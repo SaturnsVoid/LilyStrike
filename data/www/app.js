@@ -858,6 +858,9 @@ async function refreshStatus(){
    <tr><td>SD Free</td><td>${s.sdTotal?((s.sdFree/1048576).toFixed(1)+" / "+(s.sdTotal/1048576).toFixed(1)+" MB"):"not detected"}</td></tr>
    <tr><td>Connection</td><td>${s.usbHost?"Plugged into computer":"Power only"}${s.detectedOS&&s.detectedOS!=="Unknown"?` — <span style="color:var(--accent)">${icon("os",15)}</span> ${esc(s.detectedOS)}`:""}</td></tr>
    <tr><td>WiFi AP</td><td>${s.ip} (${s.wifiClients} client(s))${s.wifiHidden?" · <span class='muted'>hidden</span>":""}</td></tr>
+   <tr><td>MCP / AI</td><td>${s.mcpEnabled
+     ? `<span class="badge ${s.mcpAiConnected?"run":"sb"}">${s.mcpAiConnected?"AI connected":"enabled, no client"}</span>`
+     : "<span class='muted'>disabled</span>"}</td></tr>
    <tr><td>Client Network</td><td>${s.netConnected
      ? `${icon("wifi",15)} Connected to <b>${esc(s.netSsid)}</b> — device IP: <b class="mono">${esc(s.netIp)}</b>`
      : "<span class='muted'>Not connected (AP only)</span>"}</td></tr>
@@ -942,6 +945,12 @@ function settingsView(){
     <label>Token (auto-generated; override if you like)<input id="tunnelToken" onchange="saveTunnel()"></label>
     <label><input type="checkbox" id="tunnelEnabled" style="width:auto" onchange="saveTunnel()"> Enable tunnel when on an internet network</label>
   </div>
+  <div class="setcard"><h3>${icon("bolt")} MCP / AI Mode</h3>
+    <p class="desc">Lets LLM agents (Claude Desktop, MCP clients) drive the device via the MCP protocol at <b class="mono">/mcp</b>. Safe tools only — destructive actions stay human-only.</p>
+    <label><input type="checkbox" id="mcpEnabled" style="width:auto" onchange="saveMcp()"> Enable MCP server at boot</label>
+    <label>Access token (used by AI clients as ?token= or X-MCP-Token header)
+      <input id="mcpToken" onchange="saveMcpToken()"></label>
+  </div>
   <div class="setcard"><h3>${icon("gear")} Interface Availability</h3>
     <p class="desc">Temporarily disable the web interface (hold BOOT 1.5 s on next boot to re-enable). Permanent mode requires a firmware re-flash to undo.</p>
     <label><input type="checkbox" id="tempOff" style="width:auto"> Temporarily disable web interface</label>
@@ -975,6 +984,8 @@ async function loadSettingsState(){
     $("#autoDetectOS").checked=!!s.autoDetectOS;
     if(s.permOff) toast("Interface is PERMANENTLY disabled (on reboot)","err");
   }catch(e){}
+  $("#mcpEnabled").checked=!!s.mcpEnabled;
+  $("#mcpToken").value=s.mcpToken||"";
   api("/api/sys").then(c=>{
     $("#powerMode").value=String(c.powerMode);
     $("#macMode").value=String(c.macMode);
@@ -991,6 +1002,14 @@ async function loadSettingsState(){
 }
 // Per-group saves: only the group the user touched is sent + toasted.
 let _lastSys = {};
+async function saveMcp(){
+  await jpost("/api/settings",{mcpEnabled:$("#mcpEnabled").checked});
+  toast($("#mcpEnabled").checked ? "MCP enabled — active after reboot" : "MCP disabled — active after reboot");
+}
+async function saveMcpToken(){
+  await jpost("/api/mcptoken",{token:$("#mcpToken").value});
+  toast("MCP token updated");
+}
 async function savePower(){
   const v = +$("#powerMode").value;
   if (_lastSys.powerMode === v) return;

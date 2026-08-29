@@ -24,7 +24,12 @@
 namespace mcp {
 
 void begin();                   // register routes (call from web::begin)
+bool enabled();                 // MCP on/off (boot setting)
+void setEnabled(bool on);       // persist enable/disable
 String token();                 // current MCP token (generates if unset)
 void setToken(const String& t); // override
+uint32_t totalCalls();          // lifetime JSON-RPC calls received
+bool everInitialized();         // an LLM has completed initialize at least once
+uint32_t lastInitAgoMs();       // ms since last initialize (0xFFFFFFFF = never)
 
 } // namespace mcp

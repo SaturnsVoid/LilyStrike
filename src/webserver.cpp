@@ -129,6 +129,10 @@ static void hStatus() {
          ",\"scriptSince\":" + String((uint32_t)g_state.scriptStateSince) +
          ",\"fw\":\"" FW_VERSION "\",\"fwName\":\"" FW_NAME "\"" +
          ",\"safeMode\":" + String(g_state.safeMode ? "true":"false") +
+         ",\"mcpEnabled\":" + String(mcp::enabled() ? "true":"false") +
+         ",\"mcpCalls\":" + String(mcp::totalCalls()) +
+         ",\"mcpAiConnected\":" + String(mcp::everInitialized() &&
+             mcp::lastInitAgoMs() < 300000 ? "true":"false") +
          "}";
     json(200, s);
 }
@@ -523,6 +527,8 @@ static void hSysSet() {
     if (extractJsonStr(body, "macCustom", v)) {
         Preferences p; p.begin("mac", false); p.putString("custom", v); p.end();
     }
+    if (body.indexOf("\"mcpEnabled\":true") >= 0)   mcp::setEnabled(true);
+    if (body.indexOf("\"mcpEnabled\":false") >= 0)  mcp::setEnabled(false);
     Preferences t; t.begin("tunnel", false);
     if (extractJsonStr(body, "tunnelToken", v) && v.length()) t.putString("token", v);
     if (body.indexOf("\"tunnelEnabled\":true") >= 0)  t.putBool("on", true);
@@ -869,6 +875,8 @@ static void hSettingsGet() {
         ",\"brightness\":" + String(cfg.screenBrightness) +
         ",\"autoDetectOS\":" + String(cfg.autoDetectOS ? "true" : "false") +
         ",\"wifiHidden\":" + String(cfg.wifiHidden ? "true" : "false") +
+        ",\"mcpEnabled\":" + String(mcp::enabled() ? "true" : "false") +
+        ",\"mcpToken\":\"" + mcp::token() + "\"" +
         ",\"tempOff\":" + String(cfg.ifaceTempOff ? "true" : "false") +
         ",\"permOff\":" + String(cfg.ifaceDisabledPerm ? "true" : "false") +
         "}";

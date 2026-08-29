@@ -30,6 +30,9 @@ using web::webServerPtr;
 namespace mcp {
 
 static String s_token;
+static bool s_enabled = true;
+static uint32_t s_callsTotal = 0;
+static uint32_t s_lastInitMs = 0xFFFFFFFF;   // last LLM initialize handshake
 
 String token() {
     if (!s_token.length()) {
@@ -294,6 +297,7 @@ static void handleMcp() {
         }
     }
     if (!id.length()) id = "null";
+    s_callsTotal++;
     logLine("mcp: " + method);
 
     if (method == "initialize") {
@@ -316,7 +320,26 @@ static void handleMcp() {
     }
 }
 
+bool enabled() { return s_enabled; }
+void setEnabled(bool on) {
+    s_enabled = on;
+    Preferences p; p.begin("mcp", false);
+    p.putBool("on", on);
+    p.end();
+    logLine(String("mcp: ") + (on ? "enabled" : "disabled"));
+}
+void load() {
+    Preferences p; p.begin("mcp", true);
+    s_enabled = p.getBool("on", true);
+    p.end();
+}
+uint32_t totalCalls() { return s_callsTotal; }
+bool everInitialized() { return s_lastInitMs != 0xFFFFFFFF; }
+uint32_t lastInitAgoMs() { return (s_lastInitMs==0xFFFFFFFF) ? 0xFFFFFFFF : millis()-s_lastInitMs; }
+
 void begin() {
+    load();
+    if (!s_enabled) { logLine("mcp: disabled by setting"); return; }
     WebServer* srv = webServerPtr();
     if (srv) srv->on("/mcp", HTTP_POST, handleMcp);
 }
