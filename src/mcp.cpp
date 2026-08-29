@@ -55,8 +55,11 @@ void setToken(const String& t) {
 
 // ------------------------------------------------------------------ helpers
 static void sendJson(int code, const String& j) {
+    // NOTE: srv->send(code, "application/json", ...) already emits
+    // Content-Type; adding another produces a duplicate header
+    // ("application/json, application/json") which strict MCP clients
+    // reject with "Unexpected content type".
     WebServer* srv = webServerPtr();
-    srv->sendHeader("Content-Type", "application/json");
     srv->send(code, "application/json", j);
 }
 static void jsonError(int code, int rpcCode, const String& msg, const String& id = "null") {
