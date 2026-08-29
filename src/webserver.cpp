@@ -1003,8 +1003,10 @@ bool begin() {
     server.on("/index.html", HTTP_GET, hIndex);
     server.onNotFound(hStatic);
     // collect cookies
-    const char* hdrKeys[] = {"Cookie"};
-    server.collectHeaders(hdrKeys, 1);
+    // Cookie (web auth) + X-MCP-Token (MCP auth) - uncollected headers are
+    // discarded by ESP32 WebServer, so MCP auth silently failed until this.
+    const char* hdrKeys[] = {"Cookie", "X-MCP-Token"};
+    server.collectHeaders(hdrKeys, 2);
     server.begin();
     s_running = true;
     logLine(String("web: AP \"") + cfg.wifiSSID + "\" up at " + localIP());
