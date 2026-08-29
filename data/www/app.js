@@ -629,6 +629,67 @@ async function refreshLocks(){
   }catch(e){}
 }
 
+/* ============================ DEAUTH VIEW ============================= */
+let deauthTimer=null;
+function deauthView(){
+  clearInterval(deauthTimer);
+  view.innerHTML=`<div class="panel"><h2>${icon("wifi")} Deauth + Handshake Capture</h2>
+   <p class="err">Disruptive attack. Device goes OFFLINE while running (channel conflict) and returns when done. BOOT button aborts. Authorized networks only!</p>
+   <label>Target SSID<input id="deauthSsid" placeholder="Network to attack"></label>
+   <label>Duration (seconds, 5-300)<input id="deauthSecs" type="number" value="30" min="5" max="300" style="max-width:120px"></label>
+   <button class="danger" id="deauthBtn" onclick="doDeauth()">Start Deauth + Capture</button>
+   <button class="small" id="deauthStopBtn" style="display:none" onclick="api('/api/deauth/stop',{method:'POST'})">Stop</button>
+   <div style="display:flex;gap:20px;margin-top:12px;flex-wrap:wrap">
+     <div>Deauths: <b id="dDeauths">0</b></div>
+     <div>Stations: <b id="dStations">0</b></div>
+     <div>EAPOL: <b id="dEapol">0</b></div>
+   </div></div>
+  <div class="panel"><h2>PCAP Capture (full traffic)</h2>
+   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+     <input id="pcapName" placeholder="cap" style="max-width:140px">
+     <select id="pcapChan" style="width:auto">${Array.from({length:13},(_,i)=>`<option value="${i+1}">Ch ${i+1}</option>`).join("")}</select>
+     <input id="pcapSecs" type="number" value="30" min="5" max="600" style="max-width:90px">s
+     <button class="danger" id="pcapBtn" onclick="doPcap()">Capture</button>
+   </div>
+   <p class="muted" style="font-size:12px;margin:6px 0 10px">Captures ALL packets on the chosen channel to SD. Device offline while running.</p>
+   <h3 style="font-size:13px;color:var(--muted)">CAPTURED FILES</h3>
+   <table id="pcapTable"></table></div>`;
+  pollDeauth(); deauthTimer=setInterval(pollDeauth,2000); refreshPcapList();
+}
+async function pollDeauth(){
+  try{
+    const s=await api("/api/deauth/status");
+    const btn=$("#deauthBtn"); if(!btn) return;
+    btn.style.display=s.attacking?"none":"";
+    const sb=$("#deauthStopBtn"); if(sb) sb.style.display=s.attacking?"":"none";
+    $("#dDeauths").textContent=s.deauths; $("#dStas").textContent=s.stations;
+    $("#dEapol").textContent=s.eapol;
+  }catch(e){}
+}
+async function doDeauth(){
+  const ssid=$("#deauthSsid").value.trim(); if(!ssid)return toast("Enter target SSID","err");
+  if(!(await confirmModal("Start deauth attack on '"+ssid+"'? Device goes offline until it completes.")))return;
+  const secs=+($("#deauthSecs").value||30);
+  await jpost("/api/deauth/start",{ssid,seconds:secs});
+  toast("Attack started - device going offline","err");
+}
+async function refreshPcapList(){
+  try{
+    const list=await api("/api/pcap/list");
+    const t=$("#pcapTable"); if(!t)return;
+    t.innerHTML="<tr><th>File</th><th>Size</th><th></th></tr>"+
+      list.map(f=>`<tr><td>${esc(f.name)}</td><td class="muted">${(f.size/1024).toFixed(1)} KB</td>
+        <td><a href="/api/file?path=${encodeURIComponent("/pcap/"+f.name)}">Download</a></td></tr>`).join("")
+      || `<tr><td colspan="3" class="muted">No captures yet</td></tr>`;
+  }catch(e){}
+}
+async function doPcap(){
+  const name=$("#pcapName").value.trim()||"cap";
+  if(!(await confirmModal("Start full-traffic capture? Device goes offline while running.")))return;
+  await jpost("/api/pcap/start",{name, channel:+$("#pcapChan").value, seconds:+$("#pcapSecs").value});
+  toast("Capture started","err");
+}
+
 /* ============================= WIFI SCAN VIEW ============================ */
 async function wifiscanView(){
   view.innerHTML=`<div class="panel"><h2>${icon("wifi")} WiFi Scanner</h2>
@@ -782,6 +843,8 @@ const REF_GROUPS=[
  ["BRUTEFORCE_PIN <len> [delayMs]","Types every numeric code of the given length (0000, 0001, ...), pressing Enter after each and backspacing for the next. Default 500 ms between attempts. Stop anytime via the web UI.","BRUTEFORCE_PIN 4 300"],
  ["BRUTEFORCE_LOGIN <file>","Types user/password pairs from a file on the SD card (lines like user:pass or user,pass). Tab between fields, Enter to submit, 800 ms pace.","BRUTEFORCE_LOGIN /creds.txt"],
  ["TUNNEL ON|OFF","Enable or disable external relay access (Settings > External Access).","TUNNEL ON"],
+ ["DEAUTH <ssid> [seconds]","Deauth attack against an AP by SSID: scans for it, captures stations via promiscuous sniffing, sends deauth frames, captures EAPOL handshakes to /pcap/. Runs once for the given time then restores normal WiFi. Device OFFLINE during. BOOT aborts. AUTHORIZED NETWORKS ONLY.","DEAUTH TargetNetwork 30"],
+ ["PCAP_CAPTURE <seconds> [channel]","Promiscuous full-traffic WiFi capture to /pcap/*.pcap on SD (openable in Wireshark). Blocks the script while running.","PCAP_CAPTURE 60 6"],
 ]],
 ];
 
@@ -1168,6 +1231,7 @@ SCREEN_OFF`],
 const NAV=[
  ["tools","BadUSB","bolt"],["files","Files","folder"],
  ["wifiscan","WiFi Scan","wifi"],
+ ["deauth","Deauth","bolt"],
  ["control","Live Control","keyboard"],["evilap","EvilAP","wifi"],
  ["reference","Reference","book"],["status","Status","gauge"],
  ["settings","Settings","gear"],
@@ -1182,6 +1246,7 @@ function route(){
   document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.h===h));
   if(h==="files")filesView();
   else if(h==="wifiscan")wifiscanView();
+  else if(h==="deauth")deauthView();
   else if(h==="control")controlView();
   else if(h==="evilap")evilapView();
   else if(h==="reference")refView();

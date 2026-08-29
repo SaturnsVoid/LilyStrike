@@ -38,6 +38,7 @@
 #include "sys.h"
 #include "msc.h"
 #include "tunnel.h"
+#include "wifiattack.h"
 #include "version.h"
 #include <esp32-hal-tinyusb.h>
 #include <USB.h>
@@ -549,6 +550,39 @@ RunResult run(const String& scriptText, const String& name) {
             } else {
                 logLine("[script:" + name + "] DISABLE_CAPS: caps already off");
             }
+        }
+        else if (cmd.equalsIgnoreCase("DEAUTH"))        {
+            // DEAUTH <ssid> [seconds] - attempt-once attack (plan Step 3b).
+            // Blocks until done; device offline during execution.
+            int sp2 = args.indexOf(' ');
+            String ssid = (sp2>0)?args.substring(0,sp2):args;
+            long secs = (sp2>0)?constrain(args.substring(sp2+1).toInt(),5,300):30;
+            ssid.trim();
+            logLine("[script:" + name + "] DEAUTH " + ssid + " for " + secs + "s");
+            hw::screenOff();
+            wifiattack::startDeauth(ssid, (uint32_t)secs);
+            // startDeauth spawns a task; wait for completion so the script
+            // sequence stays ordered
+            while (wifiattack::attacking() && !g_stopRequested) delay(200);
+            hw::screenOn();
+        }
+        else if (cmd.equalsIgnoreCase("PCAP_CAPTURE"))  {
+            // PCAP_CAPTURE <seconds> [channel] - full-traffic promiscuous
+            // capture to /pcap/<name>.pcap. (Plan said "NCM mode"; this
+            // device has no Ethernet NIC - promiscuous WiFi capture is the
+            // practical equivalent and is what the hardware can do.)
+            int sp2 = args.indexOf(' ');
+            long secs = (sp2>0)?constrain(args.substring(0,sp2).toInt(),5,600)
+                               :constrain(args.toInt(),5,600);
+            uint8_t ch = 1;
+            int sp3 = (sp2>0)?args.indexOf(' ', sp2+1):-1;
+            if (sp3>0) ch = constrain(args.substring(sp2+1,sp3).toInt(),1,13);
+            else if (sp2>0) ch = constrain(args.substring(sp2+1).toInt(),1,13);
+            logLine("[script:" + name + "] PCAP_CAPTURE " + secs + "s ch" + ch);
+            hw::screenOff();
+            String nm = "script_" + String(millis()/1000);
+            wifiattack::startPcap(nm, (uint8_t)ch, (uint32_t)secs);
+            hw::screenOn();
         }
         else if (cmd.equalsIgnoreCase("TRIGGER_KEY"))    {
             // TRIGGER_KEY <caps|num|scroll> <timeoutMs> <RUN|SKIP>

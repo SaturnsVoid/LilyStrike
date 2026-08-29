@@ -45,6 +45,7 @@
 #include "tunnel.h"
 #include "scheduler.h"
 #include "mcp.h"
+#include "wifiattack.h"
 #include "version.h"
 #include <ESPmDNS.h>
 #include <Preferences.h>
@@ -558,6 +559,60 @@ static void hEulaSet() {
     json(200, "{\"ok\":true}");
 }
 
+// ---- WiFi attack (deauth + pcap, Step 3b) --------------------------------------
+// During an attack the device AP goes DOWN (channel conflict) - the UI warns.
+// Attacks are "attempt once": bounded time, then normal operation restores.
+static void hDeauthStart() {
+    requireAuth(); if (!isAuthed()) return;
+    String body = server.arg("plain"), ssid;
+    long secs = extractJsonNum(body, "seconds", 30);
+    if (!extractJsonStr(body, "ssid", ssid) || !ssid.length())
+        return jsonErr(400, "ssid required");
+    if (wifiattack::attacking()) return jsonErr(409, "attack already running");
+    logLine("web: DEAUTH requested for '" + ssid + "'");
+    if (!wifiattack::startDeauth(ssid, constrain((long)secs, 5, 300)))
+        return jsonErr(500, "cannot start (busy or script running)");
+    server.send(200, "application/json", "{\"ok\":true,\"warn\":\"device goes offline during attack\"}");
+}
+static void hDeauthStop() {
+    requireAuth(); if (!isAuthed()) return;
+    wifiattack::stop();
+    json(200, "{\"ok\":true}");
+}
+static void hDeauthStatus() {
+    requireAuth(); if (!isAuthed()) return;
+    auto st = wifiattack::stats();
+    json(200, String("{\"attacking\":") + (wifiattack::attacking()?"true":"false") +
+              ",\"deauths\":" + st.deauths + ",\"stations\":" + st.stations +
+              ",\"eapol\":" + st.eapol + "}");
+}
+static void hPcapStart() {
+    requireAuth(); if (!isAuthed()) return;
+    String body = server.arg("plain"), name;
+    long secs = extractJsonNum(body, "seconds", 30);
+    long ch = extractJsonNum(body, "channel", 1);
+    if (!extractJsonStr(body, "name", name)) name = "cap";
+    if (wifiattack::sniffing()) return jsonErr(409, "capture already running");
+    if (!wifiattack::startPcap(name, (uint8_t)constrain((long)ch,1,13), constrain((long)secs,5,600)))
+        return jsonErr(500, "cannot start");
+    server.send(200, "application/json", "{\"ok\":true,\"warn\":\"device goes offline during capture\"}");
+}
+static void hPcapList() {
+    requireAuth(); if (!isAuthed()) return;
+    String out = "[";
+    File dir = SD_MMC.open("/pcap");
+    if (dir && dir.isDirectory()) {
+        File f; bool first = true;
+        while ((f = dir.openNextFile())) {
+            if (!first) out += ",";
+            first = false;
+            out += "{\"name\":\"" + String(f.name()) + "\",\"size\":" + String(f.size()) + "}";
+            f.close();
+        }
+    }
+    json(200, out + "]");
+}
+
 // ---- Script scheduler (cron-lite) ---------------------------------------------
 static void hSchedGet() {
     requireAuth(); if (!isAuthed()) return;
@@ -986,6 +1041,11 @@ bool begin() {
     server.on("/api/mcptoken", HTTP_GET, hMcpTokenGet);
     server.on("/api/mcptoken", HTTP_POST, hMcpTokenSet);
     mcp::begin();
+    server.on("/api/deauth/start", HTTP_POST, hDeauthStart);
+    server.on("/api/deauth/stop", HTTP_POST, hDeauthStop);
+    server.on("/api/deauth/status", HTTP_GET, hDeauthStatus);
+    server.on("/api/pcap/start", HTTP_POST, hPcapStart);
+    server.on("/api/pcap/list", HTTP_GET, hPcapList);
     server.on("/api/sched", HTTP_GET, hSchedGet);
     server.on("/api/sched", HTTP_POST, hSchedAdd);
     server.on("/api/sched", HTTP_DELETE, hSchedDelete);
