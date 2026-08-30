@@ -71,6 +71,7 @@ static volatile uint32_t s_head = 0, s_tail = 0;   // producer/consumer
 static File s_pcap;
 static TaskHandle_t s_writerTask = nullptr;
 static volatile bool s_writerRun = false;
+static volatile bool s_writerDone = true;
 
 static bool ringPush(const uint8_t* data, uint16_t len) {
     if (!s_ring) return false;
@@ -83,8 +84,10 @@ static bool ringPush(const uint8_t* data, uint16_t len) {
 }
 
 static void writerTask(void*) {
-    while (s_writerRun) {
-        while (s_tail != s_head) {
+    // Drain until the producer stops AND the ring is empty. The close-race
+    // (main closing the file mid-record) is what corrupted captures before.
+    while (s_writerRun || s_tail != s_head) {
+        if (s_tail != s_head) {
             RingSlot& r = s_ring[s_tail];
             uint32_t us = micros();
             uint8_t rec[16];
@@ -97,11 +100,13 @@ static void writerTask(void*) {
             s_pcap.write(r.data, r.len);
             s_stats.captured++;
             s_tail = (s_tail + 1) % RING_SLOTS;
+        } else {
+            delay(10);
         }
-        s_pcap.flush();
-        delay(20);
+        if ((s_stats.captured % 50) == 0) s_pcap.flush();
     }
-    // final drain + close happens in stop path (after join-ish delay)
+    s_pcap.flush();
+    s_writerDone = true;
     vTaskDelete(nullptr);
 }
 
@@ -127,15 +132,18 @@ static bool pcapOpen(const String& name) {
 
     if (!s_ring) s_ring = (RingSlot*)malloc(sizeof(RingSlot) * RING_SLOTS);
     s_head = s_tail = 0;
+    s_writerDone = false;
     s_writerRun = true;
     xTaskCreatePinnedToCore(writerTask, "pcapwr", 6144, nullptr, 0, &s_writerTask, 0);
     return true;
 }
 
 static void pcapClose() {
-    delay(150);                       // let the writer drain the ring
+    // Handshaked shutdown: stop accepting, wait for the writer to drain the
+    // ring completely and signal done, THEN close. Never close mid-record.
     s_writerRun = false;
-    delay(150);
+    uint32_t t0 = millis();
+    while (!s_writerDone && millis() - t0 < 5000) delay(10);
     if (s_pcap) { s_pcap.flush(); s_pcap.close(); }
 }
 
