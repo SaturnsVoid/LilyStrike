@@ -162,10 +162,15 @@ static void IRAM_ATTR karmaSniffCb(void* buf, wifi_promiscuous_pkt_type_t type) 
     if (len < 40 || len > 512) return;
     const uint8_t* p = pkt->payload;
     if (p[0] != 0x40) return;                 // probe request
-    uint8_t ssidLen = p[37];
+    // OFFSETS DIFFER FROM BEACONS: probe requests carry NO fixed params
+    // (no timestamp/interval/caps), so tags start right after the 24-byte
+    // MAC header: SSID tag id at [24], len at [25], data at [26+].
+    // (Marauder's probeSnifferCallback: payload[25] = len, [26+i] = data.)
+    // Using beacon offsets [37]/[38] read garbage -> "0H`l" bug.
+    uint8_t ssidLen = p[25];
     if (ssidLen == 0 || ssidLen > 32) return; // 0 = wildcard probe, skip
-    if (38 + ssidLen > (int)len) return;
-    String ssid((const char*)(p+38), ssidLen);
+    if (26 + ssidLen > (int)len) return;
+    String ssid((const char*)(p+26), ssidLen);
     // tally in the sniff callback is unsafe for std::vector across tasks;
     // probe requests arrive in WiFi task - use a simple critical section
     portENTER_CRITICAL(&s_karmaMux);
