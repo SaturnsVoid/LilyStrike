@@ -236,21 +236,46 @@ static bool sendArgJson(const char* key, String& out) {
 }
 
 // ------------------------------------------------------------------- routes
+// Login lockout: 5 consecutive failures -> 30s cooldown, doubling to 5 min.
+// Brute-forcing web creds must not be cheaper than brute-forcing the AP.
+static uint8_t s_loginFails = 0;
+static uint32_t s_loginLockUntil = 0;
+static uint32_t s_loginLockMs() {
+    uint32_t ms = 30000;
+    for (uint8_t i = 5; i < s_loginFails && ms < 300000; i++) ms *= 2;
+    return ms;
+}
+
 static void hLogin() {
+    if (millis() < s_loginLockUntil) {
+        server.sendHeader("Retry-After", String((s_loginLockUntil - millis()) / 1000 + 1));
+        return jsonErr(429, "locked out - retry later");
+    }
     String u = server.arg("plain");
     // parse tiny JSON by hand to avoid ArduinoJson dependency here
     String user, pass;
     if (!extractJsonStr(u, "user", user) || !extractJsonStr(u, "pass", pass))
         return jsonErr(400, "bad request");
     if (user != cfg.webUser || pass != cfg.webPass) {
+        s_loginFails++;
+        if (s_loginFails >= 5) {
+            s_loginLockUntil = millis() + s_loginLockMs();
+            logLine("web: login lockout " + String(s_loginLockMs() / 1000) + "s after " +
+                    String(s_loginFails) + " failures");
+        }
         logLine("web: failed login");
         return jsonErr(401, "bad credentials");
     }
+    s_loginFails = 0;   // success clears the ladder
     // 24 hex chars from hardware RNG
     uint8_t rnd[12]; esp_fill_random(rnd, sizeof(rnd));
     s_sessionToken = "";
     for (uint8_t b : rnd) { char t[3]; snprintf(t, 3, "%02x", b); s_sessionToken += t; }
-    server.sendHeader("Set-Cookie", "sid=" + s_sessionToken + "; Path=/; HttpOnly");
+    // SameSite=Strict: all state-changing endpoints are cookie-gated, so a
+    // cross-site form/fetch from a malicious webpage the operator visits
+    // must NOT ride this cookie (CSRF -> selfdestruct/factory-reset).
+    server.sendHeader("Set-Cookie",
+        "sid=" + s_sessionToken + "; Path=/; HttpOnly; SameSite=Strict");
     logLine("web: login ok");
     json(200, "{\"ok\":true}");
 }
@@ -1263,8 +1288,17 @@ bool begin() {
     s_wsQueue = xQueueCreate(WS_QUEUE_LEN, sizeof(String*));
     asrv.addHandler(&ws);
     ws.onEvent([](AsyncWebSocket*, AsyncWebSocketClient* client, AwsEventType type,
-                 void*, uint8_t*, size_t) {
+                 void* arg, uint8_t*, size_t) {
         if (type == WS_EVT_CONNECT) {
+            // SECURITY: /ws streams status + every log line (SSIDs, MACs,
+            // IPs, script names) - recon gold for an unauthenticated peer.
+            // WS_EVT_CONNECT hands us the request in arg; verify the session
+            // cookie NOW and close immediately if absent.
+            auto* req = (AsyncWebServerRequest*)arg;
+            bool ok = req && req->hasHeader("Cookie") && s_sessionToken.length() &&
+                      req->getHeader("Cookie")->value()
+                          .indexOf("sid=" + s_sessionToken) >= 0;
+            if (!ok) { client->close(); return; }
             // Do NOT build/send the status here: this callback runs in the
             // async_tcp task and buildStatusJson touches SD stats, racing
             // logLine's SD writes. Flag it; web::handle() pushes next pass.
