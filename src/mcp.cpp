@@ -19,12 +19,12 @@
 #include "tunnel.h"
 #include "crypt.h"
 #include <WiFi.h>
-#include <WebServer.h>
+#include "websrv_shim.h"
 #include <Preferences.h>
 #include <esp_system.h>
 
 #include "util.h"
-namespace web { WebServer* webServerPtr(); }   // glue in webserver.cpp
+namespace web { WebSrvShim* webServerPtr(); }   // glue in webserver.cpp
 using web::webServerPtr;
 
 namespace mcp {
@@ -62,7 +62,7 @@ static void sendJson(int code, const String& j) {
     // Content-Type; adding another produces a duplicate header
     // ("application/json, application/json") which strict MCP clients
     // reject with "Unexpected content type".
-    WebServer* srv = webServerPtr();
+    WebSrvShim* srv = webServerPtr();
     srv->send(code, "application/json", j);
 }
 static void jsonError(int code, int rpcCode, const String& msg, const String& id = "null") {
@@ -129,7 +129,7 @@ static String sysSet(const String& body);   // defined below (system_config)
 void duckyRunAsync(const String& text, const String& name);
 static String toolCall(const String& name, const String& body) {
     const String& A = body;   // argsBody applied below via helpers
-    WebServer* srv = webServerPtr();
+    WebSrvShim* srv = webServerPtr();
     if (name == "device_status") {
         // Reuse the status JSON builder logic inline (compact subset)
         String s = "{";
@@ -272,7 +272,7 @@ static String sysSet(const String& body) {
 
 // ---------------------------------------------------------------- handler
 static void handleMcp() {
-    WebServer* srv = webServerPtr();
+    WebSrvShim* srv = webServerPtr();
     // auth: header OR ?token= query param (dumb clients can't set headers)
     bool authed = false;
     if (srv->hasHeader("X-MCP-Token") && srv->header("X-MCP-Token") == token())
@@ -340,7 +340,7 @@ uint32_t lastInitAgoMs() { return (s_lastInitMs==0xFFFFFFFF) ? 0xFFFFFFFF : mill
 void begin() {
     load();
     if (!s_enabled) { logLine("mcp: disabled by setting"); return; }
-    WebServer* srv = webServerPtr();
+    WebSrvShim* srv = webServerPtr();
     if (srv) srv->on("/mcp", HTTP_POST, handleMcp);
 }
 

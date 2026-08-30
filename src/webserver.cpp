@@ -30,7 +30,8 @@
 #include "hw.h"
 #include "ducky.h"
 #include <WiFi.h>
-#include <WebServer.h>
+#include "websrv_shim.h"
+#include <map>
 #include <LittleFS.h>
 #include <SD_MMC.h>
 #include "util.h"
@@ -56,13 +57,133 @@
 #include <esp_system.h>
 #include <esp32-hal.h>
 
+static WebSrvShim server;                       // same name as before: all 68
+                                                // handlers below compile untouched
+static AsyncWebServer asrv(80);
+static AsyncWebSocket ws("/ws");                // live event push (WifiPhisher-style)
+static String s_sessionToken;
+static bool s_running = false;
+
+// ---- shim plumbing: current request + per-request raw body ----
+static AsyncWebServerRequest* s_cur = nullptr;
+static String* s_curBody = nullptr;
+static String s_qHeaders;                       // queued "name:value\n" from sendHeader
+static std::map<AsyncWebServerRequest*, String> s_bodies;
+
+void WebSrvShim::on(const char* path, WebRequestMethodComposite method, THandlerFunction fn) {
+    auto* h = new AsyncCallbackWebHandler();
+    h->setUri(path); h->setMethod(method);
+    h->onBody([](AsyncWebServerRequest* r, uint8_t* d, size_t len, size_t index, size_t total) {
+        s_bodies[r] += String((const char*)d, len);
+        // safety cap: our API bodies are small JSON; prevent RAM abuse
+        if (s_bodies[r].length() > 65536) s_bodies[r] = s_bodies[r].substring(0, 65536);
+    });
+    h->onRequest([fn](AsyncWebServerRequest* r) {
+        s_cur = r;
+        s_curBody = &s_bodies[r];       // may be empty for GETs
+        s_qHeaders = "";
+        fn();
+        s_bodies.erase(r);
+        s_cur = nullptr; s_curBody = nullptr;
+    });
+    asrv.addHandler(h);
+}
+void WebSrvShim::onNotFound(THandlerFunction fn) {
+    auto* h = new AsyncCallbackWebHandler();
+    h->setUri("/.+");                   // match anything not claimed above
+    h->setMethod((WebRequestMethodComposite)HTTP_GET);
+    h->onRequest([fn](AsyncWebServerRequest* r) {
+        s_cur = r; s_curBody = &s_bodies[r]; s_qHeaders = "";
+        fn();
+        s_bodies.erase(r);
+        s_cur = nullptr; s_curBody = nullptr;
+    });
+    asrv.addHandler(h);
+}
+String WebSrvShim::arg(const char* key) {
+    if (!s_cur) return "";
+    if (strcmp(key, "plain") == 0) return s_curBody ? *s_curBody : String();
+    if (s_cur->method() == HTTP_GET) {
+        // query params only for GET (mirrors old WebServer semantics)
+        for (int i = 0; i < s_cur->params(); i++)
+            if (s_cur->getParam(i)->name() == key) return s_cur->getParam(i)->value();
+    } else {
+        if (auto* p = s_cur->getParam(key)) return p->value();
+    }
+    return "";
+}
+bool WebSrvShim::hasArg(const char* key) { return arg(key).length() > 0; }
+int WebSrvShim::args() { return s_cur ? s_cur->params() : 0; }
+String WebSrvShim::argName(int i) {
+    return (s_cur && i < s_cur->params()) ? s_cur->getParam(i)->name() : String();
+}
+String WebSrvShim::uri() { return s_cur ? s_cur->url() : String("/"); }
+WebRequestMethod WebSrvShim::method() { return s_cur ? (WebRequestMethod)s_cur->method() : HTTP_GET; }
+bool WebSrvShim::hasHeader(const char* name) {
+    return s_cur && s_cur->hasHeader(name);
+}
+String WebSrvShim::header(const char* name) {
+    if (!s_cur) return "";
+    const AsyncWebHeader* h = s_cur->getHeader(name);
+    return h ? h->value() : String();
+}
+void WebSrvShim::sendHeader(const String& name, const String& value, bool) {
+    s_qHeaders += name + ":" + value + "\n";
+}
+void WebSrvShim::send(int code, const char* ctype, const String& content) {
+    if (!s_cur) return;
+    AsyncWebServerResponse* res = s_cur->beginResponse(code, ctype, content);
+    int start = 0;
+    while (start < (int)s_qHeaders.length()) {
+        int nl = s_qHeaders.indexOf('\n', start);
+        if (nl < 0) break;
+        int colon = s_qHeaders.indexOf(':', start);
+        if (colon > start) res->addHeader(s_qHeaders.substring(start, colon),
+                                         s_qHeaders.substring(colon + 1, nl));
+        start = nl + 1;
+    }
+    s_cur->send(res);
+}
+void WebSrvShim::streamFile(File& f, const char* type) {
+    if (!s_cur) return;
+    // Our streamed files are small text (scripts, portal HTML, UI files).
+    // Buffer them; async FS streaming of File objects is fiddly across cores.
+    String out; out.reserve(f.size() + 1);
+    while (f.available()) {
+        char buf[1024];
+        int n = f.read((uint8_t*)buf, sizeof(buf));
+        if (n <= 0) break;
+        out.concat(buf, n);
+        if (out.length() > 512 * 1024) break;   // hard cap: 512KB
+    }
+    send(200, type, out);
+}
+
+
 namespace web {
+
 
 struct AutostartEntry { char name[64]; };   // ordered list of scripts to run on USB plug-in
 
-static WebServer server(80);
-static String s_sessionToken;
-static bool s_running = false;
+// Async stack: the shim object + the real async server + WS endpoint.
+
+// ---- WebSocket event bus: push JSON events to every connected client ----
+// Wire-in points: status changes (script/attack state), log lines. The UI
+// subscribes once and replaces most polling.
+} // namespace web (shim plumbing ends; wsEvent is intentionally global)
+
+void wsEvent(const String& event, const String& payload) {
+    if (ws.count() == 0) return;
+    String j = "{\"e\":\"" + event + "\",\"d\":" + payload + "}";
+    ws.textAll(j);
+}
+void wsPushStatus() {
+    if (ws.count() == 0) return;
+    extern String buildStatusJson();        // defined below with hStatus
+    wsEvent("status", buildStatusJson());
+}
+
+namespace web {
 
 // ------------------------------------------------------------------ helpers
 static bool isAuthed() {
@@ -107,9 +228,10 @@ static void hLogin() {
     json(200, "{\"ok\":true}");
 }
 
-static void hStatus() {
-    requireAuth(); if (!isAuthed()) return;
-    uint64_t freeSk = hw::sdTotalBytes() ? hw::sdUsedBytes() : 0;
+// shared status JSON: REST endpoint AND WebSocket push use the same builder
+} // namespace web (buildStatusJson is global: shared with ws push)
+
+String buildStatusJson() {
     String s = "{";
     s += "\"heap\":" + String(ESP.getFreeHeap()) +
          ",\"heapMin\":" + String(ESP.getMinFreeHeap()) +
@@ -120,7 +242,7 @@ static void hStatus() {
          ",\"sdFree\":" + String((uint32_t)(hw::sdTotalBytes() ? (hw::sdTotalBytes()-SD_MMC.usedBytes()) : 0)) +
          ",\"usbHost\":" + String(g_state.usbHostPresent ? "true" : "false") +
          ",\"wifiClients\":" + String(WiFi.softAPgetStationNum()) +
-         ",\"ip\":\"" + localIP() + "\"" +
+         ",\"ip\":\"" + web::localIP() + "\"" +
          ",\"netConnected\":" + String(WiFi.status()==WL_CONNECTED ? "true":"false") +
          ",\"netSsid\":\"" + String(WiFi.SSID()) + "\"" +
          ",\"netIp\":\"" + (WiFi.status()==WL_CONNECTED ? WiFi.localIP().toString() : String("")) + "\"" +
@@ -136,7 +258,14 @@ static void hStatus() {
          ",\"mcpAiConnected\":" + String(mcp::everInitialized() &&
              mcp::lastInitAgoMs() < 300000 ? "true":"false") +
          "}";
-    json(200, s);
+    return s;
+}
+
+namespace web {
+
+static void hStatus() {
+    requireAuth(); if (!isAuthed()) return;
+    json(200, buildStatusJson());
 }
 
 static void hLogGet() {
@@ -1058,8 +1187,10 @@ static void hMcpTokenSet() {
     logLine("web: MCP token updated");
     json(200, "{\"ok\":true}");
 }
-// ---------------------------------------------------------------------------
+void setupRoutes();    // defined below begin(): registers all API routes
+
 bool begin() {
+
     // Mount the internal flash filesystem that holds /www (web UI).
     if (!LittleFS.begin(true)) {           // true = format-on-fail (first boot)
         logLine("web: LittleFS mount FAILED");
@@ -1090,6 +1221,51 @@ bool begin() {
     MDNS.addService("http", "tcp", 80);
     logLine(String("mDNS: http://") + cfg.hostname + ".local");
 
+    // Cookie (web auth) + X-MCP-Token (MCP auth): the async server collects
+    // ALL headers by default, so no collectHeaders() equivalent is needed.
+
+    // WebSocket endpoint first (claims /ws), then handlers register
+    // themselves via server.on(...) below, then notFound -> static UI.
+    asrv.addHandler(&ws);
+    ws.onEvent([](AsyncWebSocket*, AsyncWebSocketClient* client, AwsEventType type,
+                 void*, uint8_t*, size_t) {
+        if (type == WS_EVT_CONNECT) {
+            // tell the fresh client everything at once: current status
+            String s = "{\"e\":\"status\",\"d\":" + buildStatusJson() + "}";
+            client->text(s);
+        }
+    });
+    setupRoutes();
+    asrv.begin();
+    s_running = true;
+    logLine(String("web: AP \"") + cfg.wifiSSID + "\" up at " + localIP() + " (async+ws)");
+    return true;
+}
+
+// Periodic status push while clients are connected. Called from loop() via
+// handle() - cheap: one small JSON string only when ws clients exist.
+static uint32_t s_lastPush = 0;
+void handle() {
+    if (!s_running) return;
+    ws.cleanupClients();
+    if (ws.count() && millis() - s_lastPush > 2000) {
+        s_lastPush = millis();
+        wsPushStatus();
+    }
+}
+
+// EvilAP needs port 80; two servers can't share it. Suspend = close socket,
+// resume = re-bind (clients just refresh; WS clients auto-reconnect).
+void suspend() { if (s_running) asrv.end(); }
+void resume()  { if (s_running) asrv.begin(); }
+
+String localIP() { return WiFi.softAPIP().toString(); }
+
+// MCP glue: mcp.cpp needs the shim object to register its route.
+WebSrvShim* webServerPtr() { return &server; }
+
+// route table (still inside namespace web)
+void setupRoutes() {
     server.on("/api/login", HTTP_POST, hLogin);
     server.on("/api/status", HTTP_GET, hStatus);
     server.on("/api/log", HTTP_GET, hLogGet);
@@ -1188,27 +1364,6 @@ bool begin() {
     server.on("/", HTTP_GET, hIndex);
     server.on("/index.html", HTTP_GET, hIndex);
     server.onNotFound(hStatic);
-    // collect cookies
-    // Cookie (web auth) + X-MCP-Token (MCP auth) - uncollected headers are
-    // discarded by ESP32 WebServer, so MCP auth silently failed until this.
-    const char* hdrKeys[] = {"Cookie", "X-MCP-Token"};
-    server.collectHeaders(hdrKeys, 2);
-    server.begin();
-    s_running = true;
-    logLine(String("web: AP \"") + cfg.wifiSSID + "\" up at " + localIP());
-    return true;
 }
 
-void handle() { if (s_running) server.handleClient(); }
-
-// EvilAP needs port 80; two servers can't share it. Suspend = close socket,
-// resume = re-bind (clients just refresh).
-void suspend() { if (s_running) server.stop(); }
-void resume()  { if (s_running) server.begin(); }
-
-String localIP() { return WiFi.softAPIP().toString(); }
-
-// MCP glue: mcp.cpp needs the WebServer object to register its route.
-WebServer* webServerPtr() { return &server; }
-
-} // namespace web
+} // namespace web (main: handlers + lifecycle)

@@ -86,6 +86,12 @@ void logLine(const String& s) {
     s_head = (s_head + 1) % LOG_LINES;
     if (s_count < LOG_LINES) s_count++;
     xSemaphoreGive(s_logMtx);
+    // Live push to connected web clients (WebSocket event bus). Declared here
+    // inline so config.cpp doesn't depend on webserver.cpp's header; if the
+    // web stack is down, wsEvent is a no-op that checks ws.count().
+    extern void wsEvent(const String&, const String&);
+    String esc = entry; esc.replace("\\", "\\\\"); esc.replace("\"", "\\\\\"");
+    wsEvent("log", "\"" + esc + "\"");
     // Encrypted append to SD - but NEVER while the host owns the raw card
     // (USB_STORAGE/False Thumbdrive): concurrent FS access corrupts both.
     // No SD I/O while the radio is attacking/capturing (FS + radio don't
