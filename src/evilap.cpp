@@ -179,27 +179,21 @@ static void IRAM_ATTR karmaSniffCb(void* buf, wifi_promiscuous_pkt_type_t type) 
 
 bool karmaProbing() { return s_karmaProbing; }
 
-// BUGFIX: probing previously killed the management AP (softAPdisconnect) -
-// the UI then couldn't reach the device to pick a SSID or stop. Now we
-// ROC-hop (temporary STA channel visits) and the AP stays up throughout.
+// DESIGN DECISION (user-approved): probing runs OFFLINE with direct channel
+// hopping (Marauder/WifiPhisher style) - single radio can't serve the AP.
+// Management AP returns when probing stops. UI reviews the probe list after.
 static volatile bool s_karmaRun = false;
 static void karmaHopTask(void*) {
     uint8_t ch = 0;
     while (s_karmaRun) {
         ch = (ch % 13) + 1;
-        wifi_roc_req_t roc = {
-            .ifx = WIFI_IF_STA,
-            .type = WIFI_ROC_REQ,
-            .channel = ch,
-            .sec_channel = WIFI_SECOND_CHAN_NONE,
-            .wait_time_ms = 500,
-            .rx_cb = nullptr,
-            .done_cb = nullptr
-        };
-        if (esp_wifi_remain_on_channel(&roc) != ESP_OK) delay(200);
-        else delay(500);
+        esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE);
+        delay(700);
     }
     esp_wifi_set_promiscuous(false);
+    WiFi.mode(WIFI_AP);
+    WiFi.softAP(cfg.wifiSSID, cfg.wifiPass);
+    logLine("karma: probing stopped - AP restored");
     vTaskDelete(nullptr);
 }
 static TaskHandle_t s_karmaHopTask = nullptr;
@@ -216,22 +210,20 @@ void karmaStart() {
     s_karmaRun = true;
     s_karmaProbing = true;
     xTaskCreatePinnedToCore(karmaHopTask, "karmahop", 4096, nullptr, 1, &s_karmaHopTask, 0);
-    logLine("karma: probe sniffing started (AP stays up)");
+    logLine("karma: probe sniffing started (offline mode)");
 }
 
 void karmaStop() {
     if (!s_karmaProbing) return;
     s_karmaRun = false;
-    delay(300);                            // let hop task exit
-    s_karmaProbing = false;
-    logLine("karma: probe sniffing stopped");
+    s_karmaProbing = false;                // hop task restores AP
 }
 
 bool karmaSpawn(const String& ssid) {
     if (!s_karmaProbing) return false;
     s_karmaRun = false;
-    delay(300);
     s_karmaProbing = false;
+    delay(400);                            // hop task restores AP first
     // Bring the portal up under the probed name (channel the victim used
     // doesn't matter - clients scan for the SSID)
     return start(ssid, "");

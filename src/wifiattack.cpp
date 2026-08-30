@@ -105,27 +105,12 @@ static void IRAM_ATTR analyzerCb(void* buf, wifi_promiscuous_pkt_type_t type) {
 }
 
 static void hopTask(void*) {
-    // ROC visits: park on a channel briefly, then the radio returns home -
-    // the management AP keeps beaconing between visits (WifiPhisher trick).
+    // Offline mode (Marauder/WifiPhisher style): direct channel hopping,
+    // full radio for sniffing. Management AP returns when analysis ends.
     while (s_analyzer) {
         s_hopCh = (s_hopCh % 13) + 1;
-        wifi_roc_req_t roc = {
-            .ifx = WIFI_IF_STA,
-            .type = WIFI_ROC_REQ,
-            .channel = s_hopCh,
-            .sec_channel = WIFI_SECOND_CHAN_NONE,
-            .wait_time_ms = 500,
-            .rx_cb = nullptr,
-            .done_cb = nullptr
-        };
-        esp_err_t rerr = esp_wifi_remain_on_channel(&roc);
-        static esp_err_t lastRerr = -1;
-        if (rerr != lastRerr || rerr != ESP_OK) {
-            logLine(String("analyzer: ROC ch") + s_hopCh + " -> " + esp_err_to_name(rerr));
-            lastRerr = rerr;
-        }
-        if (rerr != ESP_OK) delay(200);
-        else delay(900);   // home-channel dwell: let AP beacon + clients talk
+        esp_wifi_set_channel(s_hopCh, WIFI_SECOND_CHAN_NONE);
+        delay(700);
         portENTER_CRITICAL(&s_liveMux);
         if (s_liveAps.size() > 16) s_liveAps.erase(s_liveAps.begin());
         portEXIT_CRITICAL(&s_liveMux);
@@ -134,19 +119,25 @@ static void hopTask(void*) {
         }
     }
     esp_wifi_set_promiscuous(false);
-    logLine("analyzer: stopped (auto or requested)");
+    // restore management AP
+    WiFi.mode(WIFI_AP);
+    WiFi.softAP(cfg.wifiSSID, cfg.wifiPass);
+    logLine("analyzer: stopped - AP restored");
     vTaskDelete(nullptr);
 }
 
-// BUGFIX: the old version tore down the management AP for hopping - the
-// Stop request could then never reach the device. Now we ROC-hop (bounded
-// temporary channel visits on the STA) and the AP STAYS UP the whole time.
+// DESIGN DECISION (user-approved): the single radio can't serve the AP while
+// hopping, so - like Marauder/WifiPhisher - the analyzer runs OFFLINE with
+// direct esp_wifi_set_channel hopping and restores the AP when done. Stop is
+// done by waiting for auto-stop or rebooting; bounded at 120s anyway.
 #define ANALYZER_MAX_MS 120000
 void analyzerStart() {
     if (s_analyzer || s_sniffing || s_attacking) return;
     s_live = LiveStats();
     s_liveAps.clear();
-    WiFi.mode(WIFI_AP_STA);              // AP stays up - no softAPdisconnect!
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.softAPdisconnect(true);         // offline mode: full radio for sniffing
+    delay(100);
     esp_wifi_set_promiscuous(true);
     const wifi_promiscuous_filter_t filt = {
         .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA |
@@ -160,10 +151,7 @@ void analyzerStart() {
 }
 void analyzerStop() {
     if (!s_analyzer) return;
-    s_analyzer = false;
-    delay(250);                          // let the hop task exit its ROC
-    esp_wifi_set_promiscuous(false);
-    logLine("analyzer: stopped");
+    s_analyzer = false;                  // hopTask restores AP on exit
 }
 
 bool attacking() { return s_attacking; }

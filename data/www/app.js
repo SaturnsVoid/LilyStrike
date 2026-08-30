@@ -748,7 +748,7 @@ async function wifiscanView(){
    <span class="muted" style="margin-left:10px;font-size:12px" id="scanInfo"></span>
    <table id="scanTable" style="margin-top:12px"></table></div>
   <div class="panel"><h2>${icon("wifi")} Live Packet Analyzer</h2>
-   <p class="muted">Channel-hopping live feed: frames by type + APs seen with signal. Management AP stays up (ROC visits). Auto-stops after 2 minutes.</p>
+   <p class="muted">Channel-hopping live feed: frames by type + APs seen with signal. The device goes OFFLINE while analyzing (single radio) and the AP returns automatically when done (max 2 min, or Stop).</p>
    <button class="primary" id="anBtn" onclick="toggleAnalyzer()">Start Analyzer</button>
    <div id="liveStats" style="display:none;margin-top:12px">
      <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:10px">
@@ -769,9 +769,9 @@ async function toggleAnalyzer(){
     await api("/api/analyzer/stop",{method:"POST"});
     btn.dataset.on="0"; btn.textContent="Start Analyzer";
     clearInterval(anTimer); anTimer=null;
-    $("#liveStats").style.display="none";
+    setTimeout(()=>{ $("#liveStats").style.display="none"; }, 2500);
   } else {
-    if(!(await confirmModal("Start live packet analyzer?")))return;
+    if(!(await confirmModal("Start live packet analyzer?\nThe device goes offline until analysis completes.")))return;
     await api("/api/analyzer/start",{method:"POST"});
     btn.dataset.on="1"; btn.textContent="Stop Analyzer";
     $("#liveStats").style.display="block";
@@ -796,7 +796,7 @@ async function wifiscanView(){
    <span class="muted" style="margin-left:10px;font-size:12px" id="scanInfo"></span>
    <table id="scanTable" style="margin-top:12px"></table></div>
   <div class="panel"><h2>${icon("wifi")} Live Packet Analyzer</h2>
-   <p class="muted">Channel-hopping live feed: frames by type + APs seen with signal. Management AP stays up (ROC visits). Auto-stops after 2 minutes.</p>
+   <p class="muted">Channel-hopping live feed: frames by type + APs seen with signal. The device goes OFFLINE while analyzing (single radio) and the AP returns automatically when done (max 2 min, or Stop).</p>
    <button class="primary" id="anBtn" onclick="toggleAnalyzer()">Start Analyzer</button>
    <div id="liveStats" style="display:none;margin-top:12px">
      <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:10px">
@@ -843,7 +843,7 @@ function evilapView(){
      <button class="small" id="evilStopBtn" style="display:none" onclick="api('/api/evilap/stop',{method:'POST'})">Stop</button>
    </div></div>
   <div class="panel"><h2>Karma Attack (probe lure)</h2>
-   <p class="muted">Sniffs for devices asking "is my network here?" (probe requests), lists the names they want, and spawns the portal under one of them. Devices that remember the name connect automatically. Management AP stays up during probing.</p>
+   <p class="muted">Sniffs for devices asking "is my network here?" (probe requests) and lists the names they want. Device goes OFFLINE while probing; the AP returns when you stop or spawn the portal.</p>
    <div style="display:flex;gap:8px;margin-bottom:10px">
      <button class="primary" id="karmaBtn" onclick="karmaToggle()">Start Probe Sniffing</button>
      <span class="muted" id="karmaInfo" style="font-size:12px;align-self:center"></span>
