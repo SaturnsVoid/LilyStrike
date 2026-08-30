@@ -4,6 +4,14 @@
 // All popups are in-page; text normalised to LF everywhere.
 // ============================================================================
 "use strict";
+/* boot error trap: surface fatal JS errors visually (field debugging) */
+window.onerror = function(msg, src, line, col) {
+  const b = document.createElement("div");
+  b.style.cssText = "position:fixed;bottom:0;left:0;right:0;z-index:99999;background:#7f1d1d;color:#fff;padding:8px 14px;font:12px monospace";
+  b.textContent = "JS ERROR: " + msg + " @" + line + ":" + col;
+  document.body.appendChild(b);
+};
+
 const $ = s => document.querySelector(s);
 const view = $("#view");
 
