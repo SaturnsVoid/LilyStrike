@@ -118,8 +118,14 @@ static void hopTask(void*) {
             .rx_cb = nullptr,
             .done_cb = nullptr
         };
-        if (esp_wifi_remain_on_channel(&roc) != ESP_OK) delay(200);
-        else delay(500);
+        esp_err_t rerr = esp_wifi_remain_on_channel(&roc);
+        static esp_err_t lastRerr = -1;
+        if (rerr != lastRerr || rerr != ESP_OK) {
+            logLine(String("analyzer: ROC ch") + s_hopCh + " -> " + esp_err_to_name(rerr));
+            lastRerr = rerr;
+        }
+        if (rerr != ESP_OK) delay(200);
+        else delay(900);   // home-channel dwell: let AP beacon + clients talk
         portENTER_CRITICAL(&s_liveMux);
         if (s_liveAps.size() > 16) s_liveAps.erase(s_liveAps.begin());
         portEXIT_CRITICAL(&s_liveMux);
