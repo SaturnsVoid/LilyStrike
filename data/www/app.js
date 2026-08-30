@@ -690,7 +690,48 @@ async function doPcap(){
   toast("Capture started","err");
 }
 
-/* ============================= WIFI SCAN VIEW ============================ */
+/* ============================ RECON VIEW ============================= */
+const TOP_PORTS = [80,443,22,445,3389,8080,8000,8443,21,23,25,53,110,143,993,995,1433,3306,5432,5900,6379,27017,9100,161,1900];
+function reconView(){
+  view.innerHTML=`<div class="panel"><h2>${icon("gauge")} Host Reconnaissance</h2>
+   <p class="muted">Requires the device to be joined to the target network (script: CONNECT_AP). ARP sweep finds live hosts; port scan probes one host.</p>
+   <button class="primary" id="arpBtn" onclick="doArpSweep()">ARP Sweep (find hosts)</button>
+   <table id="hostTable" style="margin-top:12px"></table></div>
+  <div class="panel"><h2>Port Scanner</h2>
+   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+     <input id="psIp" placeholder="192.168.x.x" style="max-width:180px">
+     <input id="psPorts" placeholder="ports: empty=top25, or 22,80,443" style="max-width:220px">
+     <button class="small primary" id="psBtn" onclick="doPortScan()">Scan ports</button>
+   </div>
+   <div id="psResult" style="margin-top:10px"></div></div>`;
+}
+async function doArpSweep(){
+  $("#arpBtn").disabled=true; $("#arpBtn").textContent="Sweeping...";
+  try{
+    const hosts=await jpost("/api/recon/arp",{});
+    $("#hostTable").innerHTML="<tr><th>IP</th><th>MAC</th></tr>"+
+      hosts.map(h=>`<tr><td class="mono">${esc(h.ip)}</td><td class="mono">${esc(h.mac)}</td></tr>`).join("")
+      || `<tr><td colspan="2" class="muted">No live hosts found</td></tr>`;
+    if(hosts.length) toast(hosts.length+" host(s) found");
+  }catch(e){ toast("Sweep failed","err"); }
+  $("#arpBtn").disabled=false; $("#arpBtn").textContent="ARP Sweep (find hosts)";
+}
+async function doPortScan(){
+  const ip=$("#psIp").value.trim(); if(!ip)return toast("Enter a host IP","err");
+  const plist=$("#psPorts").value.trim();
+  $("#psBtn").disabled=true; $("#psBtn").textContent="Scanning...";
+  $("#psResult").innerHTML='<span class="muted">scanning (up to ~30s for filtered ports)...</span>';
+  try{
+    const r=await jpost("/api/recon/ports",{ip, ports: plist||undefined});
+    const open=r.open||[];
+    $("#psResult").innerHTML=open.length
+      ? `<b>Open ports:</b> ${open.map(p=>`<span class="badge run" style="margin:2px">${p}</span>`).join(" ")}`
+      : `<span class="muted">No open ports found</span>`;
+  }catch(e){ $("#psResult").innerHTML='<span class="err">scan failed</span>'; }
+  $("#psBtn").disabled=false; $("#psBtn").textContent="Scan ports";
+}
+
+/* ============================ WIFI SCAN VIEW ============================ *//* ============================= WIFI SCAN VIEW ============================ */
 async function wifiscanView(){
   view.innerHTML=`<div class="panel"><h2>${icon("wifi")} WiFi Scanner</h2>
    <p class="muted">Recon for IF_SSID targeting and CONNECT_AP. Uses AP+STA mode so your management AP stays up. Scan takes ~3 seconds.</p>
@@ -1232,6 +1273,7 @@ const NAV=[
  ["tools","BadUSB","bolt"],["files","Files","folder"],
  ["wifiscan","WiFi Scan","wifi"],
  ["deauth","Deauth","bolt"],
+ ["recon","Recon","gauge"],
  ["control","Live Control","keyboard"],["evilap","EvilAP","wifi"],
  ["reference","Reference","book"],["status","Status","gauge"],
  ["settings","Settings","gear"],
@@ -1247,6 +1289,7 @@ function route(){
   if(h==="files")filesView();
   else if(h==="wifiscan")wifiscanView();
   else if(h==="deauth")deauthView();
+  else if(h==="recon")reconView();
   else if(h==="control")controlView();
   else if(h==="evilap")evilapView();
   else if(h==="reference")refView();

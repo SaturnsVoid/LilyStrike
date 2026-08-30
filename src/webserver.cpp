@@ -46,6 +46,7 @@
 #include "scheduler.h"
 #include "mcp.h"
 #include "wifiattack.h"
+#include "hostrecon.h"
 #include "version.h"
 #include <ESPmDNS.h>
 #include <Preferences.h>
@@ -557,6 +558,53 @@ static void hEulaSet() {
     p.end();
     logLine("web: EULA accepted");
     json(200, "{\"ok\":true}");
+}
+
+// ---- Host recon (ARP sweep + port scan) ----
+static void hArpSweep() {
+    requireAuth(); if (!isAuthed()) return;
+    if (WiFi.status() != WL_CONNECTED) return jsonErr(409, "not connected to a network");
+    if (hostrecon::scanning()) return jsonErr(409, "scan in progress");
+    auto hosts = hostrecon::arpSweep();
+    String out = "[";
+    for (size_t i = 0; i < hosts.size(); i++) {
+        if (i) out += ",";
+        out += "{\"ip\":\"" + hosts[i].ip + "\",\"mac\":\"" + hosts[i].mac + "\"}";
+    }
+    json(200, out + "]");
+}
+static const uint16_t TOP_PORTS[] = {80,443,22,445,3389,8080,8000,8443,21,23,25,53,
+    110,143,993,995,1433,3306,5432,5900,6379,27017,9100,161,1900};
+static void hPortScan() {
+    requireAuth(); if (!isAuthed()) return;
+    if (WiFi.status() != WL_CONNECTED) return jsonErr(409, "not connected");
+    if (hostrecon::scanning()) return jsonErr(409, "scan in progress");
+    String body = server.arg("plain"), ip;
+    if (!extractJsonStr(body, "ip", ip)) return jsonErr(400, "ip required");
+    // optional custom port list "22,80,443" - default top ports
+    std::vector<uint16_t> ports;
+    String plist;
+    if (extractJsonStr(body, "ports", plist) && plist.length()) {
+        int start = 0;
+        while (start <= (int)plist.length()) {
+            int c = plist.indexOf(',', start);
+            String p = (c<0)?plist.substring(start):plist.substring(start,c);
+            p.trim();
+            long v = p.toInt();
+            if (v > 0 && v < 65536) ports.push_back((uint16_t)v);
+            if (c < 0) break;
+            start = c + 1;
+        }
+    } else {
+        for (uint16_t p : TOP_PORTS) ports.push_back(p);
+    }
+    auto open = hostrecon::portScan(ip, ports);
+    String out = "{\"ip\":\"" + ip + "\",\"open\":[";
+    for (size_t i = 0; i < open.size(); i++) {
+        if (i) out += ",";
+        out += String(open[i]);
+    }
+    json(200, out + "]}");
 }
 
 // ---- Karma attack ----
@@ -1073,6 +1121,8 @@ bool begin() {
     server.on("/api/deauth/stop", HTTP_POST, hDeauthStop);
     server.on("/api/deauth/status", HTTP_GET, hDeauthStatus);
     server.on("/api/pcap/start", HTTP_POST, hPcapStart);
+    server.on("/api/recon/arp", HTTP_POST, hArpSweep);
+    server.on("/api/recon/ports", HTTP_POST, hPortScan);
     server.on("/api/karma/start", HTTP_POST, hKarmaStart);
     server.on("/api/karma/probes", HTTP_GET, hKarmaProbes);
     server.on("/api/karma/spawn", HTTP_POST, hKarmaSpawn);
