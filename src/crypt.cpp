@@ -71,24 +71,34 @@ std::vector<uint8_t> aesDecryptFileData(const uint8_t* data, size_t len) {
     return pt;
 }
 
+static SemaphoreHandle_t s_sdMtx = nullptr;
+// RECURSIVE mutex: callers may nest (logLine holds it across its
+// read-modify-write while crypt helpers lock again inside).
+void sdLock()   { if (!s_sdMtx) s_sdMtx = xSemaphoreCreateRecursiveMutex(); xSemaphoreTakeRecursive(s_sdMtx, portMAX_DELAY); }
+void sdUnlock() { if (s_sdMtx) xSemaphoreGiveRecursive(s_sdMtx); }
+
 bool encryptToFile(const char* path, const String& plain) {
     std::vector<uint8_t> enc;
     if (!aesEncryptFileData((const uint8_t*)plain.c_str(), plain.length(), enc))
         return false;
+    sdLock();
     File f = SD_MMC.open(path, FILE_WRITE);
-    if (!f) return false;
+    if (!f) { sdUnlock(); return false; }
     size_t w = f.write(enc.data(), enc.size());
     f.close();
+    sdUnlock();
     return w == enc.size();
 }
 
 bool decryptFromFile(const char* path, String& out) {
+    sdLock();
     File f = SD_MMC.open(path, FILE_READ);
-    if (!f) return false;
+    if (!f) { sdUnlock(); return false; }
     size_t sz = f.size();
     std::vector<uint8_t> buf(sz);
     size_t r = f.read(buf.data(), sz);
     f.close();
+    sdUnlock();
     if (r != sz) return false;
     auto pt = aesDecryptFileData(buf.data(), buf.size());
     if (pt.empty()) return false;

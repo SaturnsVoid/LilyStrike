@@ -22,3 +22,10 @@ std::vector<uint8_t> aesDecryptFileData(const uint8_t* data, size_t len);
 // Convenience wrappers for whole SD files (path on SD_MMC).
 bool encryptToFile(const char* path, const String& plain);
 bool decryptFromFile(const char* path, String& out);
+
+// Global SD card lock: the async web server runs handlers in the async_tcp
+// task while the loop task (logLine, status stats) also touches the card.
+// Concurrent SD_MMC access from two tasks hangs the driver -> all web
+// requests pend forever (field bug: "stuck on pending" then RESET).
+void sdLock();
+void sdUnlock();

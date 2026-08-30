@@ -97,12 +97,18 @@ void logLine(const String& s) {
     // No SD I/O while the radio is attacking/capturing (FS + radio don't
     // mix well during TX bursts) or while MSC owns the card.
     if (!msc::active() && !wifiattack::busy() && SD_MMC.cardType() != CARD_NONE) {
+        // Atomic read-modify-write: two tasks logging simultaneously could
+        // interleave decrypt/encrypt and corrupt the log (or deadlock the
+        // card). One lock span for the whole update.
+        extern void sdLock(), sdUnlock();
+        sdLock();
         String existing;
         decryptFromFile("/logs/system.log.enc", existing);   // empty ok (new/corrupt)
         existing += entry + "\n";
         // Keep the file bounded (~32KB) - drop oldest half.
         if (existing.length() > 32768) existing = existing.substring(existing.length()/2);
         encryptToFile("/logs/system.log.enc", existing);
+        sdUnlock();
     }
     Serial.println("[LOG] " + entry);
 }

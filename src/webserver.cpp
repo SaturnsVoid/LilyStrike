@@ -611,12 +611,14 @@ static void hFileGet() {
     String path = server.arg("path"); if (!path.length()) return jsonErr(400, "?path=");
     // Decrypt by CONTENT, not filename: if the file carries our "PCE1"
     // envelope it gets decrypted transparently; anything else streams raw.
+    sdLock();
     File f = SD_MMC.open(path, FILE_READ);
-    if (!f) return jsonErr(404, "not found");
+    if (!f) { sdUnlock(); return jsonErr(404, "not found"); }
     uint8_t magic[4] = {0};
     f.read(magic, 4);
     bool encrypted = (magic[0]=='P' && magic[1]=='C' && magic[2]=='E' && magic[3]=='1');
     f.close();
+    sdUnlock();
     if (encrypted) {
         String txt;
         if (!decryptFromFile(path.c_str(), txt))
@@ -624,9 +626,12 @@ static void hFileGet() {
         server.sendHeader("Cache-Control", "no-cache");
         return server.send(200, "text/plain", txt);
     }
+    sdLock();
     f = SD_MMC.open(path, FILE_READ);
+    if (!f) { sdUnlock(); return jsonErr(404, "not found"); }
     server.streamFile(f, "application/octet-stream");
     f.close();
+    sdUnlock();
 }
 
 static void hFileSave() {
@@ -637,20 +642,24 @@ static void hFileSave() {
     // Keep the on-disk format consistent with what's already there: files
     // with our PCE1 envelope (or .ds scripts) get written back encrypted.
     bool wasEncrypted = false;
+    sdLock();
     File chk = SD_MMC.open(path, FILE_READ);
     if (chk) {
         uint8_t m[4] = {0}; chk.read(m, 4); chk.close();
         wasEncrypted = (m[0]=='P' && m[1]=='C' && m[2]=='E' && m[3]=='1');
     }
+    sdUnlock();
     bool ok;
     content = normalizeEol(content);
     if (wasEncrypted || path.endsWith(".ds")) {
         ok = encryptToFile(path.c_str(), content);
     } else {
+        sdLock();
         File f = SD_MMC.open(path, FILE_WRITE);
-        if (!f) return jsonErr(500, "cannot open");
+        if (!f) { sdUnlock(); return jsonErr(500, "cannot open"); }
         size_t w = f.print(content);
         f.close();
+        sdUnlock();
         ok = (w == content.length());
     }
     logLine("web: saved " + path);
@@ -1185,10 +1194,12 @@ static void hFileBin() {
         return jsonErr(400, "bad base64");
     bin.resize(actual);
 
+    sdLock();
     File f = SD_MMC.open(path, FILE_WRITE);
-    if (!f) return jsonErr(500, "cannot open for write");
+    if (!f) { sdUnlock(); return jsonErr(500, "cannot open for write"); }
     size_t w = f.write(bin.data(), bin.size());
     f.close();
+    sdUnlock();
     logLine("web: uploaded " + path + " (" + String(bin.size()) + "B)");
     json(w == bin.size() ? 200 : 500, String("{\"ok\":") + (w==bin.size()) + "}");
 }

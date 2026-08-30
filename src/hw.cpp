@@ -9,6 +9,7 @@
 // BTN  : BOOT GPIO0, active LOW, simple debounce.
 // ============================================================================
 #include "hw.h"
+#include "crypt.h"
 #include "pins.h"
 #include "config.h"
 #include <SPI.h>
@@ -193,7 +194,7 @@ bool sdWipe() {
 
 // ---------------------------------------------------------------------------
 bool sdMount() { return sdOK; }
-uint64_t sdUsedBytes()  { return sdOK ? (uint64_t)(SD_MMC.totalBytes() - SD_MMC.usedBytes()) : 0; }
-uint64_t sdTotalBytes() { return sdOK ? SD_MMC.totalBytes() : 0; }
+uint64_t sdUsedBytes()  { if (!sdOK) return 0; sdLock(); uint64_t v = (uint64_t)(SD_MMC.totalBytes() - SD_MMC.usedBytes()); sdUnlock(); return v; }
+uint64_t sdTotalBytes() { if (!sdOK) return 0; sdLock(); uint64_t v = SD_MMC.totalBytes(); sdUnlock(); return v; }
 
 } // namespace hw
