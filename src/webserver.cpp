@@ -1132,6 +1132,30 @@ bool begin() {
     server.on("/api/sched", HTTP_POST, hSchedAdd);
     server.on("/api/sched", HTTP_DELETE, hSchedDelete);
     server.on("/api/sched/clear", HTTP_POST, hSchedClear);
+    server.on("/api/analyzer/start", HTTP_POST, [](void){
+        requireAuth(); if (!isAuthed()) return;
+        wifiattack::analyzerStart();
+        json(200, "{\"ok\":true,\"warn\":\"management AP down while analyzing\"}");
+    });
+    server.on("/api/analyzer/stop", HTTP_POST, [](void){
+        requireAuth(); if (!isAuthed()) return;
+        wifiattack::analyzerStop();
+        json(200, "{\"ok\":true}");
+    });
+    server.on("/api/analyzer/live", HTTP_GET, [](){
+        requireAuth(); if (!isAuthed()) return;
+        auto st = wifiattack::liveStats();
+        auto aps = wifiattack::liveAps();
+        String out = String("{\"mgmt\":") + st.mgmt + ",\"data\":" + st.data +
+            ",\"ctrl\":" + st.ctrl + ",\"total\":" + st.total +
+            ",\"bytes\":" + st.bytes + ",\"channel\":" + st.channel + ",\"aps\":[";
+        for (size_t i = 0; i < aps.size(); i++) {
+            if (i) out += ",";
+            String ssid = aps[i].first; ssid.replace("\"","'");
+            out += "{\"ssid\":\"" + ssid + "\",\"rssi\":" + String(aps[i].second) + "}";
+        }
+        json(200, out + "]}");
+    });
     server.on("/api/wifiscan", HTTP_GET, hWifiScan);
     server.on("/api/sys", HTTP_GET, hSysGet);
     server.on("/api/sys", HTTP_POST, hSysSet);

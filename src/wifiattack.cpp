@@ -48,6 +48,100 @@ static Stats s_stats;
 static volatile bool s_attacking = false;
 static volatile bool s_sniffing = false;
 
+// ---- live analyzer ----
+static volatile bool s_analyzer = false;
+static LiveStats s_live;                 // guarded by s_liveMux, not volatile
+static portMUX_TYPE s_liveMux = portMUX_INITIALIZER_UNLOCKED;
+static std::vector<std::pair<String,int8_t>> s_liveAps;   // ssid -> rssi
+std::vector<std::pair<String,int8_t>> liveAps() {
+    portENTER_CRITICAL(&s_liveMux);
+    auto copy = s_liveAps;
+    portEXIT_CRITICAL(&s_liveMux);
+    return copy;
+}
+
+static uint8_t s_hopCh = 1;
+static TaskHandle_t s_hopTask = nullptr;
+
+LiveStats liveStats() {
+    portENTER_CRITICAL(&s_liveMux);
+    LiveStats copy = s_live;
+    portEXIT_CRITICAL(&s_liveMux);
+    return copy;
+}
+
+static void IRAM_ATTR analyzerCb(void* buf, wifi_promiscuous_pkt_type_t type) {
+    auto* pkt = (wifi_promiscuous_pkt_t*)buf;
+    uint32_t len = pkt->rx_ctrl.sig_len;
+    portENTER_CRITICAL(&s_liveMux);
+    s_live.total++;
+    s_live.bytes += len;
+    s_live.channel = pkt->rx_ctrl.channel;
+    if (type == WIFI_PKT_MGMT) s_live.mgmt++;
+    else if (type == WIFI_PKT_DATA) s_live.data++;
+    else if (type == WIFI_PKT_CTRL) s_live.ctrl++;
+    portEXIT_CRITICAL(&s_liveMux);
+
+    // track APs from beacons/probe responses
+    if (type == WIFI_PKT_MGMT) {
+        const uint8_t* p = pkt->payload;
+        if ((p[0] & 0xFC) == 0x80 && len >= 38) {   // beacon or probe resp
+            uint8_t ssidLen = p[37];
+            if (ssidLen > 0 && ssidLen <= 32 && 38 + ssidLen <= (int)len) {
+                String ssid((const char*)(p+38), ssidLen);
+                portENTER_CRITICAL(&s_liveMux);
+                bool found = false;
+                int8_t rssi2 = (int8_t)pkt->rx_ctrl.rssi;
+                for (auto& ap : s_liveAps)
+                    if (ap.first == ssid) { ap.second = rssi2; found = true; break; }
+                if (!found && s_liveAps.size() < 24)
+                    s_liveAps.push_back({ssid, rssi2});
+                portEXIT_CRITICAL(&s_liveMux);
+            }
+        }
+    }
+}
+
+static void hopTask(void*) {
+    while (s_analyzer) {
+        s_hopCh = (s_hopCh % 13) + 1;
+        esp_wifi_set_channel(s_hopCh, WIFI_SECOND_CHAN_NONE);
+        delay(400);
+        // prune stale APs occasionally (keep list fresh)
+        portENTER_CRITICAL(&s_liveMux);
+        if (s_liveAps.size() > 16) s_liveAps.erase(s_liveAps.begin());
+        portEXIT_CRITICAL(&s_liveMux);
+    }
+    vTaskDelete(nullptr);
+}
+
+void analyzerStart() {
+    if (s_analyzer || s_sniffing || s_attacking) return;
+    s_live = LiveStats();
+    s_liveAps.clear();
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.softAPdisconnect(true);
+    delay(100);
+    esp_wifi_set_promiscuous(true);
+    const wifi_promiscuous_filter_t filt = {
+        .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA |
+                       WIFI_PROMIS_FILTER_MASK_CTRL };
+    esp_wifi_set_promiscuous_filter(&filt);
+    esp_wifi_set_promiscuous_rx_cb(&analyzerCb);
+    s_analyzer = true;
+    xTaskCreatePinnedToCore(hopTask, "hopper", 4096, nullptr, 1, &s_hopTask, 0);
+    logLine("analyzer: started (channel hopping)");
+}
+void analyzerStop() {
+    if (!s_analyzer) return;
+    s_analyzer = false;
+    delay(200);
+    esp_wifi_set_promiscuous(false);
+    WiFi.mode(WIFI_AP);
+    WiFi.softAP(cfg.wifiSSID, cfg.wifiPass);
+    logLine("analyzer: stopped");
+}
+
 bool attacking() { return s_attacking; }
 bool sniffing()  { return s_sniffing; }
 bool busy()      { return s_attacking || s_sniffing; }
@@ -207,6 +301,10 @@ static void IRAM_ATTR attackSniffCb(void* buf, wifi_promiscuous_pkt_type_t type)
     const uint8_t* p = pkt->payload;
     uint8_t fc = p[0];
 
+    portENTER_CRITICAL(&s_liveMux);
+    s_live.total++;
+    if (type == WIFI_PKT_DATA) s_live.data++;
+    portEXIT_CRITICAL(&s_liveMux);
     if (isEapol(p)) {
         s_stats.eapol++;
         bufAppend(p, (uint16_t)(len > 512 ? 512 : len));            // handshake frames into the pcap

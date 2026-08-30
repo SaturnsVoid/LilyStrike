@@ -746,7 +746,68 @@ async function wifiscanView(){
    <p class="muted">Recon for IF_SSID targeting and CONNECT_AP. Uses AP+STA mode so your management AP stays up. Scan takes ~3 seconds.</p>
    <button class="primary" onclick="doScan()">Scan now</button>
    <span class="muted" style="margin-left:10px;font-size:12px" id="scanInfo"></span>
-   <table id="scanTable" style="margin-top:12px"></table></div>`;
+   <table id="scanTable" style="margin-top:12px"></table></div>
+  <div class="panel"><h2>${icon("wifi")} Live Packet Analyzer</h2>
+   <p class="muted">Channel-hopping live feed: frames by type + APs seen with signal. Management AP goes down while analyzing.</p>
+   <button class="primary" id="anBtn" onclick="toggleAnalyzer()">Start Analyzer</button>
+   <div id="liveStats" style="display:none;margin-top:12px">
+     <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:10px">
+       <div>Total: <b id="lvTotal">0</b></div>
+       <div>Mgmt: <b id="lvMgmt">0</b></div>
+       <div>Data: <b id="lvData">0</b></div>
+       <div>Ctrl: <b id="lvCtrl">0</b></div>
+       <div>Channel: <b id="lvCh">-</b></div>
+     </div>
+     <table id="liveAps"></table>
+   </div></div>`;
+  // note: anTimer managed globally
+}
+let anTimer=null;
+async function toggleAnalyzer(){
+  const btn=$("#anBtn");
+  if(btn.dataset.on==="1"){
+    await api("/api/analyzer/stop",{method:"POST"});
+    btn.dataset.on="0"; btn.textContent="Start Analyzer";
+    clearInterval(anTimer); anTimer=null;
+    $("#liveStats").style.display="none";
+  } else {
+    if(!(await confirmModal("Start live analyzer? Management AP goes down while running.")))return;
+    await api("/api/analyzer/start",{method:"POST"});
+    btn.dataset.on="1"; btn.textContent="Stop Analyzer";
+    $("#liveStats").style.display="block";
+    anTimer=setInterval(async()=>{
+      try{ const s=await api("/api/analyzer/live");
+        $("#lvTotal").textContent=s.total; $("#lvMgmt").textContent=s.mgmt;
+        $("#lvData").textContent=s.data; $("#lvCtrl").textContent=s.ctrl;
+        $("#lvCh").textContent=s.channel;
+        $("#liveAps").innerHTML="<tr><th>AP seen (hopping)</th><th>Signal</th></tr>"+
+          s.aps.map(x=>`<tr><td>${esc(x.ssid)}</td><td>${x.rssi} dBm</td></tr>`).join("")
+          || `<tr><td colspan="2" class="muted">listening...</td></tr>`;
+      }catch(e){}
+    },1000);
+  }
+}
+
+/* ============================= WIFI SCAN VIEW ============================ */
+async function wifiscanView(){
+  view.innerHTML=`<div class="panel"><h2>${icon("wifi")} WiFi Scanner</h2>
+   <p class="muted">Recon for IF_SSID targeting and CONNECT_AP. Uses AP+STA mode so your management AP stays up. Scan takes ~3 seconds.</p>
+   <button class="primary" onclick="doScan()">Scan now</button>
+   <span class="muted" style="margin-left:10px;font-size:12px" id="scanInfo"></span>
+   <table id="scanTable" style="margin-top:12px"></table></div>
+  <div class="panel"><h2>${icon("wifi")} Live Packet Analyzer</h2>
+   <p class="muted">Channel-hopping live feed: frames by type + APs seen with signal. Management AP goes down while analyzing.</p>
+   <button class="primary" id="anBtn" onclick="toggleAnalyzer()">Start Analyzer</button>
+   <div id="liveStats" style="display:none;margin-top:12px">
+     <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:10px">
+       <div>Total: <b id="lvTotal">0</b></div>
+       <div>Mgmt: <b id="lvMgmt">0</b></div>
+       <div>Data: <b id="lvData">0</b></div>
+       <div>Ctrl: <b id="lvCtrl">0</b></div>
+       <div>Channel: <b id="lvCh">-</b></div>
+     </div>
+     <table id="liveAps"></table>
+   </div></div>`;
   doScan();   // auto-scan on open
 }
 async function doScan(){
