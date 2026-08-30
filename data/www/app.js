@@ -208,26 +208,43 @@ function toolsView() {
 
 /* -------- IDE editor -------- */
 const CODE = () => $("#code");
-const FLOW = /^(IF|ELSE|ELSE_IF|END_IF|WHILE|REPEAT)\b/i;
-const CMD = /^(REM|REM_BLOCK_START|REM_BLOCK_END|DEFAULTDELAY|DEFAULT_DELAY|DELAY|STRING|STRINGLN|ENTER|SPACE|TAB|ESCAPE|DOWNARROW|UPARROW|LEFTARROW|RIGHTARROW|BACKSPACE|DELETE|HOME|INSERT|PAGEUP|PAGEDOWN|CAPSLOCK|APP|GUI|WINDOWS|COMMAND|CTRL|CONTROL|ALT|ALTGR|SHIFT|F\d{1,2})\b/i;
-const CUSTOM = /^(DETECT_OS|LED_ON|LED_OFF|LED_BLINK|SCREEN_ON|SCREEN_OFF|SCREEN_CLR|SCREEN_TEXT|SCREEN_IMG|RANDOM_NUM|RANDOM_CHAR|HUMAN_TYPE|SSID_TRIGGER|CONNECT_AP|DISCON_AP|WIFI_CONNECTED|GET_IP|WAIT_BUTTON|JIGGLE_MOUSE|SSID_SPAM|RESET_FIRM|USB_STORAGE|SELF_DESTRUCT|LOG)\b/i;
+// NOTE ordering: longer words first so ELSE_IF is not eaten by ELSE and
+// STRINGLN not by STRING. All anchors allow leading indent (tabs/spaces).
+const FLOW = /^(ELSE_IF|END_IF|IF|ELSE|WHILE|REPEAT)\b/i;
+const CMD = /^(REM_BLOCK_START|REM_BLOCK_END|DEFAULTDELAY|DEFAULT_DELAY|DELAY|STRINGLN|STRING|ENTER|SPACE|TAB|ESCAPE|DOWNARROW|UPARROW|LEFTARROW|RIGHTARROW|BACKSPACE|DELETE|HOME|INSERT|PAGEUP|PAGEDOWN|CAPSLOCK|APP|GUI|WINDOWS|COMMAND|CONTROL|CTRL|ALTGR|ALT|SHIFT|HOLD_KEY|RELEASE_KEY|F\d{1,2})\b/i;
+const CUSTOM = /^(DETECT_OS|LED_ON|LED_OFF|LED_BLINK|SCREEN_ON|SCREEN_OFF|SCREEN_CLR|SCREEN_TEXT|SCREEN_IMG|RANDOM_NUM|RANDOM_CHAR|HUMAN_TYPE|SSID_TRIGGER|CONNECT_AP|DISCON_AP|WIFI_CONNECTED|GET_IP|WAIT_BUTTON|JIGGLE_MOUSE|SSID_SPAM|RESET_FIRM|USB_STORAGE|SELF_DESTRUCT|BRUTEFORCE_PIN|BRUTEFORCE_LOGIN|QWIIC_RELAY|QWIIC_RELAY_STATE|QWIIC_LIGHT|LOG)\b/i;
+// pass 2: builtin identifiers inside arguments (IF WIFI_CONNECTED = true etc.)
+const FLOW_W = /\b(ELSE_IF|END_IF|IF|ELSE|WHILE|REPEAT)\b/gi;
+const CUSTOM_W = /\b(DETECT_OS|LED_ON|LED_OFF|LED_BLINK|SCREEN_ON|SCREEN_OFF|SCREEN_CLR|SCREEN_TEXT|SCREEN_IMG|RANDOM_NUM|RANDOM_CHAR|HUMAN_TYPE|SSID_TRIGGER|CONNECT_AP|DISCON_AP|WIFI_CONNECTED|GET_IP|WAIT_BUTTON|JIGGLE_MOUSE|SSID_SPAM|RESET_FIRM|USB_STORAGE|SELF_DESTRUCT|BRUTEFORCE_PIN|BRUTEFORCE_LOGIN|QWIIC_RELAY|QWIIC_RELAY_STATE|QWIIC_LIGHT|LOG)\b/gi;
+const CMD_W = /\b(REM_BLOCK_START|REM_BLOCK_END|DEFAULTDELAY|DEFAULT_DELAY|STRINGLN|ENTER|SPACE|TAB|ESCAPE|DOWNARROW|UPARROW|LEFTARROW|RIGHTARROW|BACKSPACE|DELETE|HOME|INSERT|PAGEUP|PAGEDOWN|CAPSLOCK|APP|GUI|WINDOWS|COMMAND|CONTROL|CTRL|ALTGR|ALT|SHIFT|HOLD_KEY|RELEASE_KEY|F\d{1,2})\b/gi;
+// highlight known identifiers inside an already-escaped argument string
+function hlArgs(rest) {
+  return rest
+    .replace(FLOW_W, '<span class="tok-flow">$1</span>')
+    .replace(CUSTOM_W, '<span class="tok-custom">$1</span>')
+    .replace(CMD_W, '<span class="tok-cmd">$1</span>');
+}
 function highlight() {
   const lines = CODE().value.split("\n");
   let out = "", g = "";
   lines.forEach((ln, i) => {
     g += (i+1) + "\n";
-    if (/^\s*(REM|#)/i.test(ln)) { out += `<span class="tok-rem">${esc(ln)}</span>`; }
-    else {
-      let m = ln.match(FLOW);
-      if (m) out += `<span class="tok-flow">${esc(m[0])}</span>` + esc(ln.slice(m[0].length));
-      else if ((m = ln.match(CUSTOM))) out += `<span class="tok-custom">${esc(m[0])}</span>` + esc(ln.slice(m[0].length));
-      else if ((m = ln.match(CMD))) {
-        const rest = ln.slice(m[0].length);
-        out += `<span class="tok-cmd">${esc(m[0])}</span>` +
-               (/^STRING/i.test(m[0]) ? `<span class="tok-str">${esc(rest)}</span>` : esc(rest));
-      } else out += esc(ln).replace(/\b(\d+)\b/g, '<span class="tok-num">$1</span>');
+    const ind = (ln.match(/^\s*/) || [""])[0];   // indent preserved outside spans
+    const body = ln.slice(ind.length);
+    let seg;
+    if (/^(REM\b|REM_|#)/i.test(body)) {
+      seg = `<span class="tok-rem">${esc(body)}</span>`;
+    } else {
+      let m = body.match(FLOW);
+      if (m) seg = `<span class="tok-flow">${esc(m[0])}</span>` + hlArgs(esc(body.slice(m[0].length)));
+      else if ((m = body.match(CUSTOM))) seg = `<span class="tok-custom">${esc(m[0])}</span>` + hlArgs(esc(body.slice(m[0].length)));
+      else if ((m = body.match(CMD))) {
+        const rest = body.slice(m[0].length);
+        seg = `<span class="tok-cmd">${esc(m[0])}</span>` +
+              (/^STRING/i.test(m[0]) ? `<span class="tok-str">${esc(rest)}</span>` : hlArgs(esc(rest)));
+      } else seg = esc(body).replace(/\b(\d+)\b/g, '<span class="tok-num">$1</span>');
     }
-    out += "\n";
+    out += esc(ind) + seg + "\n";
   });
   $("#hl").innerHTML = out + "\n";
   $("#gutter").textContent = g;
