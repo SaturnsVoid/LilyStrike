@@ -51,7 +51,9 @@ a{color:var(--accent);text-decoration:none}
 main{flex:1;padding:24px;max-width:1150px;min-width:0}
 #themeBtn{position:fixed;top:14px;right:16px;z-index:50;background:var(--panel);
   border:1px solid var(--border);border-radius:50%;width:38px;height:38px;
-  display:grid;place-items:center;cursor:pointer;color:var(--accent)}
+  display:flex;align-items:center;justify-content:center;cursor:pointer;
+  color:var(--accent);padding:0;margin:0;line-height:0}
+#themeBtn svg{display:block}
 @media(max-width:760px){
   #sidebar{position:fixed;bottom:0;top:auto;width:100%;height:auto;
     border-right:none;border-top:1px solid var(--border);z-index:60}

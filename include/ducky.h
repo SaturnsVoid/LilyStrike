@@ -43,6 +43,7 @@ void hidMouseButton(const String& b, bool down);     // "left","right","middle"
 void hidMouseScroll(int clicks);
 
 bool isRunning();
+bool wasStopped();                  // stop() called since last run() began
 String stateString();               // "STANDBY" / "RUNNING" / "FINISHED"
 
 } // namespace ducky

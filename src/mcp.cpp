@@ -321,8 +321,12 @@ static void handleMcp() {
 }
 
 bool enabled() { return s_enabled; }
+static void registerRoute();   // fwd: defined below, needed by setEnabled
 void setEnabled(bool on) {
     s_enabled = on;
+    // BUGFIX: /mcp was only registered in begin() at boot, so enabling MCP
+    // at runtime never took effect until reboot. Register on the spot.
+    if (on) registerRoute();
     Preferences p; p.begin("mcp", false);
     p.putBool("on", on);
     p.end();
@@ -337,11 +341,16 @@ uint32_t totalCalls() { return s_callsTotal; }
 bool everInitialized() { return s_lastInitMs != 0xFFFFFFFF; }
 uint32_t lastInitAgoMs() { return (s_lastInitMs==0xFFFFFFFF) ? 0xFFFFFFFF : millis()-s_lastInitMs; }
 
+static bool s_routeRegistered = false;
+static void registerRoute() {
+    if (s_routeRegistered) return;
+    WebSrvShim* srv = webServerPtr();
+    if (srv) { srv->on("/mcp", HTTP_POST, handleMcp); s_routeRegistered = true; }
+}
 void begin() {
     load();
     if (!s_enabled) { logLine("mcp: disabled by setting"); return; }
-    WebSrvShim* srv = webServerPtr();
-    if (srv) srv->on("/mcp", HTTP_POST, handleMcp);
+    registerRoute();
 }
 
 // ---- async script runner mirroring webserver.cpp's pattern ----

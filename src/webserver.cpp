@@ -320,6 +320,11 @@ static void hStatus() {
     json(200, buildStatusJson());
 }
 
+static void hLogout() {
+    // Logout = drop the RAM session; cookie becomes worthless immediately.
+    s_sessionToken = "";
+    json(200, "{\"ok\":true}");
+}
 static void hLogGet() {
     requireAuth(); if (!isAuthed()) return;
     server.send(200, "text/plain", logGetAll());
@@ -1357,6 +1362,7 @@ void setupRoutes() {
     server.on("/api/login", HTTP_POST, hLogin);
     server.on("/api/status", HTTP_GET, hStatus);
     server.on("/api/log", HTTP_GET, hLogGet);
+    server.on("/api/logout", HTTP_POST, hLogout);
     server.on("/api/reboot", HTTP_POST, hReboot);
     server.on("/api/reset", HTTP_POST, hFactoryReset);
     server.on("/api/format-sd", HTTP_POST, hFormatSD);

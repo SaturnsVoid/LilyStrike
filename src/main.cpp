@@ -54,7 +54,13 @@ static void plugInTask(void* pv) {
         decryptFromFile(("/scripts/" + n).c_str(), text);
         if (text.length()) ducky::run(text, n);
         else logLine("autostart: cannot read/decrypt " + n);
-        if (!ducky::isRunning()) break;   // stopped via web UI -> abort chain
+        // BUGFIX: old check `if (!ducky::isRunning()) break;` fired after the
+        // FIRST script FINISHED (isRunning false) and killed the chain. Only
+        // a user-initiated stop should abort the remaining scripts.
+        if (ducky::wasStopped()) {
+            logLine("autostart: chain aborted by stop");
+            break;
+        }
     }
     delete ctx;
     s_chainTask = nullptr;

@@ -22,6 +22,7 @@
 //            WAIT_BUTTON [secs] [CONTINUE|STOP]   (default 30 CONTINUE)
 //            JIGGLE_MOUSE <secs>           -> subtle mouse motion
 //            CONNECT_AP <ssid> [password]  -> join network as station
+//            DISCON_AP [erase]             -> drop station link
 //            RESET_FIRM                    -> factory reset + reboot
 //   NOTE: SSID_SPAM and SCREEN_IMG deferred (Step 3 wifi-lowlevel / image
 //         loader work); unknown commands log an error but don't abort.
@@ -90,6 +91,7 @@ void setLayout(const String& name) {
 static USBHIDMouse mouse;
 static bool kbStarted = false;
 static volatile bool g_running = false;
+static bool s_wasStopped = false;   // set by stop(), read via wasStopped()
 static volatile bool g_stopRequested = false;
 static String s_state = "STANDBY";
 
@@ -343,6 +345,7 @@ RunResult run(const String& scriptText, const String& name) {
 
     g_running = true;
     s_state = "RUNNING";
+    s_wasStopped = false;
     g_state.scriptState = ScriptState::RUNNING;
     g_state.scriptStateSince = time(nullptr);
     g_state.lastScriptName = name;
@@ -748,6 +751,16 @@ RunResult run(const String& scriptText, const String& name) {
                     logLine("[script:" + name + "] CONNECT_AP: connection unstable - check channel/signal");
             }
         }
+        else if (cmd.equalsIgnoreCase("DISCON_AP"))   {
+            // DISCON_AP - drop the station link (AP stays up). Optional arg
+            // "erase" also wipes the saved STA credentials from NVS.
+            String mode = args; mode.trim(); mode.toLowerCase();
+            WiFi.mode(WIFI_AP_STA);          // ensure AP stays alive
+            bool erase = mode.startsWith("erase");
+            WiFi.disconnect(false, erase);
+            logLine("[script:" + name + "] DISCON_AP" +
+                    (erase ? " (creds erased)" : ""));
+        }
         else if (cmd.equalsIgnoreCase("USB_STORAGE")) {
             // USB_STORAGE enable|disable - toggles the SD-over-USB interface.
             String mode = args; mode.trim(); mode.toLowerCase();
@@ -870,7 +883,9 @@ RunResult run(const String& scriptText, const String& name) {
     return res;
 }
 
-void stop() { g_stopRequested = true; }
+void stop() { g_stopRequested = true; s_wasStopped = true; }
+
+bool wasStopped() { return s_wasStopped; }
 
 void initOnce() {
     if (!kbStarted) {

@@ -204,7 +204,7 @@ function toolsView() {
 const CODE = () => $("#code");
 const FLOW = /^(IF|ELSE|ELSE_IF|END_IF|WHILE|REPEAT)\b/i;
 const CMD = /^(REM|REM_BLOCK_START|REM_BLOCK_END|DEFAULTDELAY|DEFAULT_DELAY|DELAY|STRING|STRINGLN|ENTER|SPACE|TAB|ESCAPE|DOWNARROW|UPARROW|LEFTARROW|RIGHTARROW|BACKSPACE|DELETE|HOME|INSERT|PAGEUP|PAGEDOWN|CAPSLOCK|APP|GUI|WINDOWS|COMMAND|CTRL|CONTROL|ALT|ALTGR|SHIFT|F\d{1,2})\b/i;
-const CUSTOM = /^(DETECT_OS|LED_ON|LED_OFF|LED_BLINK|SCREEN_ON|SCREEN_OFF|SCREEN_CLR|SCREEN_TEXT|SCREEN_IMG|RANDOM_NUM|RANDOM_CHAR|HUMAN_TYPE|SSID_TRIGGER|CONNECT_AP|WIFI_CONNECTED|GET_IP|WAIT_BUTTON|JIGGLE_MOUSE|SSID_SPAM|RESET_FIRM|USB_STORAGE|SELF_DESTRUCT|LOG)\b/i;
+const CUSTOM = /^(DETECT_OS|LED_ON|LED_OFF|LED_BLINK|SCREEN_ON|SCREEN_OFF|SCREEN_CLR|SCREEN_TEXT|SCREEN_IMG|RANDOM_NUM|RANDOM_CHAR|HUMAN_TYPE|SSID_TRIGGER|CONNECT_AP|DISCON_AP|WIFI_CONNECTED|GET_IP|WAIT_BUTTON|JIGGLE_MOUSE|SSID_SPAM|RESET_FIRM|USB_STORAGE|SELF_DESTRUCT|LOG)\b/i;
 function highlight() {
   const lines = CODE().value.split("\n");
   let out = "", g = "";
@@ -1396,7 +1396,10 @@ const NAV=[
 ];
 function buildNav(){
   $("#nav").innerHTML = NAV.map(([h,label,ic])=>
-    `<a href="#${h}" data-h="${h}">${icon(ic)} ${label}</a>`).join("");
+    `<a href="#${h}" data-h="${h}">${icon(ic)} ${label}</a>`).join("")
+    // Logout as a proper menu item (was a 12px muted link in the sidebar
+    // footer nobody could find).
+    + `<a href="#" id="logout" style="color:var(--err)">${icon("gear")} Logout</a>`;
 }
 function route(){
   clearInterval(statusTimer); clearInterval(evilTimer); clearInterval(ctrlTimer);
@@ -1413,7 +1416,14 @@ function route(){
   else toolsView();
 }
 window.onhashchange=route;
-$("#logout").onclick=()=>fetch("/api/login",{method:"POST"}).then(()=>location.href="/login.html");
+document.addEventListener("click", async e => {
+  // logout is re-rendered by buildNav() on every view switch -> use delegation
+  const t = e.target.closest && e.target.closest("#logout");
+  if (!t) return;
+  e.preventDefault();
+  try { await jpost("/api/logout", {}); } catch {}
+  location.href = "/login.html";
+});
 
 /* -------------------------------- boot --------------------------------- */
 initTheme();
