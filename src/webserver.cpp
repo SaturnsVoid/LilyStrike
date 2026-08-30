@@ -226,9 +226,22 @@ static void jsonErr(int code, const String& msg) {
     json(code, "{\"ok\":false,\"error\":\"" + msg + "\"}");
 }
 
-// Wrap handler bodies with the auth gate.
+// Wrap handler bodies with the auth gate. 401 diagnosis matters: after a
+// REBOOT the RAM token is gone (by design) - that 401s EVERYONE. A cookie
+// mismatch on a live token is a different beast (host flip via mDNS, stale
+// tab). Log which, throttled so a 401-storm doesn't spam the SD log.
+static uint32_t s_last401Log = 0;
 static void requireAuth() {
-    if (!isAuthed()) { jsonErr(401, "unauthorized"); }
+    if (isAuthed()) return;
+    jsonErr(401, "unauthorized");
+    if (millis() - s_last401Log < 5000) return;
+    s_last401Log = millis();
+    if (!s_sessionToken.length())
+        logLine("web: 401 " + server.uri() + " (no session - rebooted?)");
+    else if (!server.hasHeader("Cookie"))
+        logLine("web: 401 " + server.uri() + " (no Cookie header)");
+    else
+        logLine("web: 401 " + server.uri() + " (cookie mismatch)");
 }
 
 static bool sendArgJson(const char* key, String& out) {
