@@ -1125,6 +1125,11 @@ bool begin() {
     server.on("/api/recon/arp", HTTP_POST, hArpSweep);
     server.on("/api/recon/ports", HTTP_POST, hPortScan);
     server.on("/api/karma/start", HTTP_POST, hKarmaStart);
+    server.on("/api/karma/stop", HTTP_POST, [](void){
+        requireAuth(); if (!isAuthed()) return;
+        evilap::karmaStop();
+        json(200, "{\"ok\":true}");
+    });
     server.on("/api/karma/probes", HTTP_GET, hKarmaProbes);
     server.on("/api/karma/spawn", HTTP_POST, hKarmaSpawn);
     server.on("/api/sched", HTTP_GET, hSchedGet);

