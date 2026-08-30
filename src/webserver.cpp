@@ -161,6 +161,22 @@ void WebSrvShim::streamFile(File& f, const char* type) {
     }
     send(200, type, out);
 }
+void WebSrvShim::sendFSFile(fs::FS& fs, const String& path, const char* type) {
+    if (!s_cur) return;
+    // beginResponse(FS,...) + manual send so queued headers (no-cache) apply
+    AsyncWebServerResponse* res = s_cur->beginResponse(fs, path, type);
+    if (!res) { send(500, (const char*)"text/plain", "file open failed"); return; }
+    int start = 0;
+    while (start < (int)s_qHeaders.length()) {
+        int nl = s_qHeaders.indexOf('\n', start);
+        if (nl < 0) break;
+        int colon = s_qHeaders.indexOf(':', start);
+        if (colon > start) res->addHeader(s_qHeaders.substring(start, colon),
+                                         s_qHeaders.substring(colon + 1, nl));
+        start = nl + 1;
+    }
+    s_cur->send(res);
+}
 
 
 namespace web {
@@ -1157,15 +1173,20 @@ static void hSettingsGet() {
 // folder), so browser paths must be mapped to /www/<path>.
 static void serveWWW(const char* browserPath) {
     String fsPath = String("/www") + browserPath;
-    File f = LittleFS.open(fsPath, "r");
-    if (!f) { server.send(500, "text/plain", "UI missing - run 'pio run -t uploadfs'"); return; }
+    if (!LittleFS.exists(fsPath)) {
+        server.send(500, "text/plain", "UI missing - run 'pio run -t uploadfs'");
+        return;
+    }
     // No-cache: browsers otherwise heuristically cache app.js/style.css and
     // keep serving a stale UI after uploadfs updates.
     server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     server.sendHeader("Pragma", "no-cache");
-    server.streamFile(f, String(browserPath).endsWith(".css") ? "text/css" :
-                          String(browserPath).endsWith(".js") ? "application/javascript" : "text/html");
-    f.close();
+    // Chunked FS streaming - constant RAM. Buffering app.js (77KB) into a
+    // String + the response's own copy exhausted heap and silently produced
+    // empty bodies (field bug 192.168.12.209).
+    const char* type = String(browserPath).endsWith(".css") ? "text/css" :
+                       String(browserPath).endsWith(".js") ? "application/javascript" : "text/html";
+    server.sendFSFile(LittleFS, fsPath, type);
 }
 static void hIndex() {
     if (!isAuthed()) { server.sendHeader("Location", "/login.html"); server.send(302); return; }

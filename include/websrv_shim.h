@@ -49,6 +49,10 @@ public:
     void sendHeader(const String& name, const String& value, bool first = false);
     void send(int code, const char* content_type = "text/plain", const String& content = String(""));
     void streamFile(File& f, const char* type);   // small files -> buffered send
+    // Chunked FS streaming (constant RAM) - REQUIRED for large files like
+    // app.js (77KB): buffering a String + beginResponse copies it, and the
+    // double ~77KB heap alloc silently failed -> 200/500 with EMPTY body.
+    void sendFSFile(fs::FS& fs, const String& path, const char* type);
 
     // ---- lifecycle (also shimmed: no handleClient needed) ----
     void begin();
