@@ -1156,8 +1156,11 @@ bool begin() {
             ",\"bytes\":" + st.bytes + ",\"channel\":" + st.channel + ",\"aps\":[";
         for (size_t i = 0; i < aps.size(); i++) {
             if (i) out += ",";
-            String ssid = aps[i].first; ssid.replace("\"","'");
-            out += "{\"ssid\":\"" + ssid + "\",\"rssi\":" + String(aps[i].second) + "}";
+            String ssid(aps[i].ssid); ssid.replace("\"","'");
+            out += "{\"ssid\":\"" + ssid + "\",\"bssid\":\"" + aps[i].bssid +
+                   "\",\"channel\":" + String(aps[i].channel) +
+                   ",\"secure\":" + String(aps[i].secure?"true":"false") +
+                   ",\"rssi\":" + String(aps[i].rssi) + "}";
         }
         json(200, out + "]}");
     });

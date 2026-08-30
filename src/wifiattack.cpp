@@ -58,11 +58,35 @@ static portMUX_TYPE s_liveMux = portMUX_INITIALIZER_UNLOCKED;
 // push_back (malloc) inside portENTER_CRITICAL reset the device. Plain
 // char arrays + a FreeRTOS mutex (alloc-heavy ops stay out of spinlocks).
 #define LIVE_AP_MAX 24
-struct LiveAp { char ssid[33]; int8_t rssi; };
+struct LiveAp {
+    char ssid[33];
+    char bssid[18];
+    int8_t rssi;
+    uint8_t channel;
+    bool secure;
+};
 static LiveAp s_aps[LIVE_AP_MAX];
 static volatile uint8_t s_apCount = 0;
 static SemaphoreHandle_t s_apMtx = nullptr;
+static FrameInfo s_lastFrame = {};   // guarded by s_apMtx
 static void apMtxInit() { if (!s_apMtx) s_apMtx = xSemaphoreCreateMutex(); }
+
+// security sniff: look for RSN IE (WPA2/3) or WPA IE in tagged params
+static bool frameHasCryptoIE(const uint8_t* p, uint32_t len, int ssidEnd) {
+    // walk tagged params from ssidEnd; RSN IE id=48, WPA vendor IE id=221(OUI 00:50:f2)
+    int pos = ssidEnd;
+    while (pos + 2 <= (int)len - 4) {
+        uint8_t id = p[pos], l = p[pos+1];
+        if (pos + 2 + l > (int)len - 4) break;
+        if (id == 48) return true;                       // RSN (WPA2/WPA3)
+        if (id == 221 && l >= 6 && p[pos+2]==0x00 && p[pos+3]==0x50 && p[pos+4]==0xf2 && p[pos+5]==0x01) return true; // WPA1
+        pos += 2 + l;
+    }
+    return false;
+}
+static void macStr18(char* out, const uint8_t* m) {
+    snprintf(out, 18, "%02X:%02X:%02X:%02X:%02X:%02X", m[0],m[1],m[2],m[3],m[4],m[5]);
+}
 // Load the last analyzer session from SD (runs once per reconnect).
 static bool s_sessionLoaded = false;
 static void loadLastSession() {
@@ -86,12 +110,18 @@ static void loadLastSession() {
             int cb = j.indexOf('}', ob);
             if (cb < 0) break;
             String obj = j.substring(ob, cb + 1);
-            String ssid; extractJsonStr(obj, "ssid", ssid);
+            String ssid, bssid;
+            extractJsonStr(obj, "ssid", ssid);
+            extractJsonStr(obj, "bssid", bssid);
             long rssi = extractJsonNum(obj, "rssi", -100);
+            long ch = extractJsonNum(obj, "channel", 0);
             if (ssid.length()) {
-                memset(s_aps[s_apCount].ssid, 0, 33);
+                memset(&s_aps[s_apCount], 0, sizeof(LiveAp));
                 strlcpy(s_aps[s_apCount].ssid, ssid.c_str(), 33);
+                strlcpy(s_aps[s_apCount].bssid, bssid.c_str(), 18);
                 s_aps[s_apCount].rssi = (int8_t)rssi;
+                s_aps[s_apCount].channel = (uint8_t)constrain(rssi*0+extractJsonNum(obj,"channel",1),1,13);
+                s_aps[s_apCount].secure = obj.indexOf("\"secure\":true") >= 0;
                 s_apCount++;
             }
             pos = cb + 1;
@@ -100,16 +130,29 @@ static void loadLastSession() {
     logLine("analyzer: last session loaded (" + String(s_apCount) + " APs)");
 }
 
-std::vector<std::pair<String,int8_t>> liveAps() {
+std::vector<ApInfo> liveAps() {
     if (!s_analyzer && s_apCount == 0) loadLastSession();
-    std::vector<std::pair<String,int8_t>> out;
+    std::vector<ApInfo> out;
     apMtxInit();
     if (xSemaphoreTake(s_apMtx, pdMS_TO_TICKS(100))) {
-        for (int i = 0; i < s_apCount; i++)
-            out.push_back({String(s_aps[i].ssid), s_aps[i].rssi});
+        for (int i = 0; i < s_apCount; i++) {
+            ApInfo a;
+            memcpy(a.ssid, s_aps[i].ssid, 33);
+            memcpy(a.bssid, s_aps[i].bssid, 18);
+            a.rssi = s_aps[i].rssi; a.channel = s_aps[i].channel;
+            a.secure = s_aps[i].secure;
+            out.push_back(a);
+        }
         xSemaphoreGive(s_apMtx);
     }
     return out;
+}
+
+FrameInfo lastFrame() {
+    xSemaphoreTake(s_apMtx, portMAX_DELAY);
+    FrameInfo copy = s_lastFrame;
+    xSemaphoreGive(s_apMtx);
+    return copy;
 }
 
 static uint8_t s_hopCh = 1;
@@ -129,6 +172,7 @@ LiveStats liveStats() {
 static void IRAM_ATTR analyzerCb(void* buf, wifi_promiscuous_pkt_type_t type) {
     auto* pkt = (wifi_promiscuous_pkt_t*)buf;
     uint32_t len = pkt->rx_ctrl.sig_len;
+    const uint8_t* p = pkt->payload;
     portENTER_CRITICAL(&s_liveMux);
     s_live.total++;
     s_live.bytes += len;
@@ -138,25 +182,43 @@ static void IRAM_ATTR analyzerCb(void* buf, wifi_promiscuous_pkt_type_t type) {
     else if (type == WIFI_PKT_CTRL) s_live.ctrl++;
     portEXIT_CRITICAL(&s_liveMux);
 
-    // track APs from beacons/probe responses (fixed table - see above)
+    // last-frame metadata (any type) for the live detail view
+    {
+        FrameInfo fi = {};
+        fi.type = (p[0] >> 2) & 0x3;
+        fi.subtype = (p[0] >> 4) & 0xF;
+        fi.rssi = (int8_t)pkt->rx_ctrl.rssi;
+        fi.channel = pkt->rx_ctrl.channel;
+        fi.len = len;
+        macStr18(fi.src, p+10);
+        macStr18(fi.dst, p+4);
+        s_lastFrame = fi;
+    }
+
+    // track APs from beacons/probe responses (enriched records)
     if (type == WIFI_PKT_MGMT) {
         const uint8_t* p = pkt->payload;
         if ((p[0] & 0xFC) == 0x80 && len >= 38) {
             uint8_t ssidLen = p[37];
-            if (ssidLen > 0 && ssidLen <= 32 && 38 + ssidLen <= (int)len) {
+            if (ssidLen <= 32 && 38 + ssidLen <= (int)len) {
                 if (xSemaphoreTake(s_apMtx, pdMS_TO_TICKS(20)) == pdTRUE) {
+                    char bssid[18]; macStr18(bssid, p+16);
+                    bool enc = frameHasCryptoIE(p, len, 38 + ssidLen);
                     bool found = false;
                     for (int i = 0; i < s_apCount; i++) {
-                        if (strncmp(s_aps[i].ssid, (const char*)(p+38), ssidLen)==0
-                            && strlen(s_aps[i].ssid)==ssidLen) {
+                        if (strcmp(s_aps[i].bssid, bssid)==0) {
                             s_aps[i].rssi = (int8_t)pkt->rx_ctrl.rssi;
+                            s_aps[i].channel = pkt->rx_ctrl.channel;
                             found = true; break;
                         }
                     }
                     if (!found && s_apCount < LIVE_AP_MAX) {
                         memset(s_aps[s_apCount].ssid, 0, 33);
                         memcpy(s_aps[s_apCount].ssid, p+38, ssidLen);
+                        memcpy(s_aps[s_apCount].bssid, bssid, 18);
                         s_aps[s_apCount].rssi = (int8_t)pkt->rx_ctrl.rssi;
+                        s_aps[s_apCount].channel = pkt->rx_ctrl.channel;
+                        s_aps[s_apCount].secure = enc;
                         s_apCount++;
                     }
                     xSemaphoreGive(s_apMtx);
@@ -195,7 +257,10 @@ static void hopTask(void*) {
         for (int i = 0; i < s_apCount; i++) {
             if (i) out += ",";
             String ssid(s_aps[i].ssid); ssid.replace("\"","'");
-            out += "{\"ssid\":\"" + ssid + "\",\"rssi\":" + String(s_aps[i].rssi) + "}";
+            out += "{\"ssid\":\"" + ssid + "\",\"bssid\":\"" + s_aps[i].bssid +
+                   "\",\"channel\":" + String(s_aps[i].channel) +
+                   ",\"secure\":" + String(s_aps[i].secure?"true":"false") +
+                   ",\"rssi\":" + String(s_aps[i].rssi) + "}";
         }
         out += "]}";
         encryptToFile("/analyzer_last.enc", out);

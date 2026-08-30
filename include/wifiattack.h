@@ -45,12 +45,28 @@ bool startPcap(const String& name, uint8_t channel, uint32_t seconds);
 
 // Live analyzer: while sniffing (or an attack is running), counts frames by
 // type + tracks APs seen on the current channel. Cheap - read anytime.
+struct ApInfo {
+    char ssid[33];
+    char bssid[18];      // "AA:BB:CC:DD:EE:FF"
+    int8_t rssi;
+    uint8_t channel;
+    bool secure;         // encrypted network?
+};
 struct LiveStats {
     uint32_t mgmt = 0, data = 0, ctrl = 0, total = 0, bytes = 0;
     uint8_t channel = 0;
 };
 LiveStats liveStats();
-std::vector<std::pair<String,int8_t>> liveAps();
+std::vector<ApInfo> liveAps();
+// Last captured frame metadata (for the live detail view)
+struct FrameInfo {
+    uint8_t type, subtype;
+    int8_t rssi;
+    uint8_t channel;
+    uint16_t len;
+    char src[18], dst[18];
+};
+FrameInfo lastFrame();
 void analyzerStart();      // enable counting + channel hopping (no SD writes)
 void analyzerStop();
 void stopPcap();
