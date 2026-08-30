@@ -38,6 +38,9 @@
 #include "spoof.h"
 #include <Preferences.h>
 #include <esp_system.h>
+#include <esp32-hal.h>
+#include <mbedtls/base64.h>
+#include <ESPmDNS.h>
 #include "power.h"
 #include "detect_os.h"
 #include "sys.h"
@@ -49,13 +52,6 @@
 #include "wifiattack.h"
 #include "hostrecon.h"
 #include "version.h"
-#include <ESPmDNS.h>
-#include <Preferences.h>
-#include <esp_system.h>
-#include "power.h"
-#include <mbedtls/base64.h>
-#include <esp_system.h>
-#include <esp32-hal.h>
 
 static WebSrvShim server;                       // same name as before: all 68
                                                 // handlers below compile untouched
@@ -1491,7 +1487,6 @@ void setupRoutes() {
     });
     server.on("/api/karma/probes", HTTP_GET, hKarmaProbes);
     server.on("/api/karma/spawn", HTTP_POST, hKarmaSpawn);
-    server.on("/api/sched", HTTP_GET, hSchedGet);
     server.on("/api/sched", HTTP_GET, hSchedGet);
     server.on("/api/sched", HTTP_POST, hSchedAdd);
     server.on("/api/sched", HTTP_DELETE, hSchedDelete);
