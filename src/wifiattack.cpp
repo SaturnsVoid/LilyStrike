@@ -55,8 +55,8 @@ Stats stats()    { return s_stats; }
 // ------------------------------------------------------- TX ground truth
 static volatile uint32_t s_txOk = 0, s_txDrop = 0;
 static void IRAM_ATTR txDoneCb(const esp_80211_tx_info_t* info) {
-    if (info->tx_status == WIFI_SEND_SUCCESS) s_txOk++;
-    else s_txDrop++;
+    if (info->tx_status == WIFI_SEND_SUCCESS) { s_txOk++; s_stats.deauths = s_txOk; }
+    else { s_txDrop++; s_stats.deauthDrops = s_txDrop; }
 }
 
 // ------------------------------------------------- RAM ring -> writer task
@@ -167,7 +167,9 @@ static void IRAM_ATTR attackSniffCb(void* buf, wifi_promiscuous_pkt_type_t type)
     // Station discovery, both directions (WifiPhisher pattern):
     //   ToDS=1:  addr1=BSSID(AP) addr2=STA   (client -> AP)
     //   FromDS=1: addr1=STA addr2=BSSID(AP)  (AP -> client)
-    uint8_t toDS = fc & 0x01, fromDS = fc & 0x02;
+    // ToDS/FromDS live in byte 1 of the FC (byte 0 = proto/type/subtype)
+    uint8_t toDS = p[1] & 0x01, fromDS = p[1] & 0x02;
+    (void)fc;
     const uint8_t *addr1 = p+4, *addr2 = p+10;
     const uint8_t* sta = nullptr;
     if (toDS && !fromDS && memcmp(addr1, s_apBssid, 6)==0) sta = addr2;
@@ -249,7 +251,7 @@ static void attackTask(void* pv) {
     esp_wifi_set_country(&c);
     esp_wifi_set_max_tx_power(84);
 
-    bool havePcap = true;   // pcap file open above (failures already logged)
+    bool havePcap = pcapOpen("hs_" + ssid);   // BUGFIX: was never opened
 
     // keep OUR AP up but move it to the target channel - one radio, so the
     // whole system parks on ch while the ROC window runs. UI warned about
