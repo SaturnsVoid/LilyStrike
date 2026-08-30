@@ -191,10 +191,19 @@ struct AutostartEntry { char name[64]; };   // ordered list of scripts to run on
 // subscribes once and replaces most polling.
 } // namespace web (shim plumbing ends; wsEvent is intentionally global)
 
+// THREAD SAFETY: AsyncWebSocket is NOT safe to call from arbitrary tasks
+// (logLine fires from ducky/sniffer/MCP/loop contexts). Field crash: calling
+// textAll directly from another task corrupted the client list -> hang ->
+// watchdog reboot -> RAM session token gone -> "logged out everywhere".
+// Fix: events go through a FreeRTOS queue, drained to textAll by the loop
+// task in web::handle() - the same task that owns the async server.
+static QueueHandle_t s_wsQueue = nullptr;
+static volatile bool s_wsPushOnConnect = false;
+#define WS_QUEUE_LEN 24
 void wsEvent(const String& event, const String& payload) {
-    if (ws.count() == 0) return;
-    String j = "{\"e\":\"" + event + "\",\"d\":" + payload + "}";
-    ws.textAll(j);
+    if (!s_wsQueue) return;                 // web stack down: drop silently
+    String* j = new String("{\"e\":\"" + event + "\",\"d\":" + payload + "}");
+    if (xQueueSend(s_wsQueue, &j, 0) != pdTRUE) delete j;   // full: drop (log flood guard)
 }
 void wsPushStatus() {
     if (ws.count() == 0) return;
@@ -1250,13 +1259,15 @@ bool begin() {
 
     // WebSocket endpoint first (claims /ws), then handlers register
     // themselves via server.on(...) below, then notFound -> static UI.
+    s_wsQueue = xQueueCreate(WS_QUEUE_LEN, sizeof(String*));
     asrv.addHandler(&ws);
     ws.onEvent([](AsyncWebSocket*, AsyncWebSocketClient* client, AwsEventType type,
                  void*, uint8_t*, size_t) {
         if (type == WS_EVT_CONNECT) {
-            // tell the fresh client everything at once: current status
-            String s = "{\"e\":\"status\",\"d\":" + buildStatusJson() + "}";
-            client->text(s);
+            // Do NOT build/send the status here: this callback runs in the
+            // async_tcp task and buildStatusJson touches SD stats, racing
+            // logLine's SD writes. Flag it; web::handle() pushes next pass.
+            s_wsPushOnConnect = true;
         }
     });
     setupRoutes();
@@ -1269,9 +1280,24 @@ bool begin() {
 // Periodic status push while clients are connected. Called from loop() via
 // handle() - cheap: one small JSON string only when ws clients exist.
 static uint32_t s_lastPush = 0;
+static volatile bool s_wsPushOnConnect = false;
 void handle() {
     if (!s_running) return;
     ws.cleanupClients();
+    if (s_wsPushOnConnect) {
+        s_wsPushOnConnect = false;
+        if (ws.count()) wsPushStatus();   // safe: wsEvent now queues
+    }
+    // drain the event queue (loop task = the async server's task)
+    if (s_wsQueue) {
+        String* j = nullptr;
+        while (xQueueReceive(s_wsQueue, &j, 0) == pdTRUE) {
+            if (j) {
+                if (ws.count()) ws.textAll(*j);
+                delete j;
+            }
+        }
+    }
     if (ws.count() && millis() - s_lastPush > 2000) {
         s_lastPush = millis();
         wsPushStatus();
