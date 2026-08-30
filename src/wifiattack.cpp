@@ -74,17 +74,27 @@ static void loadLastSession() {
     s_live.mgmt = extractJsonNum(j, "mgmt", 0);
     s_live.data = extractJsonNum(j, "data", 0);
     s_live.ctrl = extractJsonNum(j, "ctrl", 0);
-    // parse "aps":[...] - reuse our array parser on a wrapped object
-    std::vector<String> objs;
-    extractJsonArr(j, "aps", objs);
-    for (auto& o : objs) {
-        String ssid; extractJsonStr(o, "ssid", ssid);
-        long rssi = extractJsonNum(o, "rssi", -100);
-        if (ssid.length() && s_apCount < LIVE_AP_MAX) {
-            memset(s_aps[s_apCount].ssid, 0, 33);
-            strlcpy(s_aps[s_apCount].ssid, ssid.c_str(), 33);
-            s_aps[s_apCount].rssi = (int8_t)rssi;
-            s_apCount++;
+    // Parse "aps":[{...},{...}] with a dedicated walker - extractJsonArr
+    // only handles arrays of STRINGS; it silently returned junk on object
+    // arrays, which is why counters loaded but the AP list stayed empty.
+    int ai = j.indexOf("\"aps\":[");
+    if (ai >= 0) {
+        int pos = ai + 7;   // past "aps":[
+        while (s_apCount < LIVE_AP_MAX) {
+            int ob = j.indexOf('{', pos);
+            if (ob < 0) break;
+            int cb = j.indexOf('}', ob);
+            if (cb < 0) break;
+            String obj = j.substring(ob, cb + 1);
+            String ssid; extractJsonStr(obj, "ssid", ssid);
+            long rssi = extractJsonNum(obj, "rssi", -100);
+            if (ssid.length()) {
+                memset(s_aps[s_apCount].ssid, 0, 33);
+                strlcpy(s_aps[s_apCount].ssid, ssid.c_str(), 33);
+                s_aps[s_apCount].rssi = (int8_t)rssi;
+                s_apCount++;
+            }
+            pos = cb + 1;
         }
     }
     logLine("analyzer: last session loaded (" + String(s_apCount) + " APs)");
