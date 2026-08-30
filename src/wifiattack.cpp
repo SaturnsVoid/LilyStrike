@@ -54,7 +54,15 @@ static volatile bool s_sniffing = false;
 static volatile bool s_analyzer = false;
 static LiveStats s_live;                 // guarded by s_liveMux, not volatile
 static portMUX_TYPE s_liveMux = portMUX_INITIALIZER_UNLOCKED;
-static std::vector<std::pair<String,int8_t>> s_liveAps;   // ssid -> rssi
+// Fixed AP table: NO heap ops in the sniff callback - std::vector
+// push_back (malloc) inside portENTER_CRITICAL reset the device. Plain
+// char arrays + a FreeRTOS mutex (alloc-heavy ops stay out of spinlocks).
+#define LIVE_AP_MAX 24
+struct LiveAp { char ssid[33]; int8_t rssi; };
+static LiveAp s_aps[LIVE_AP_MAX];
+static volatile uint8_t s_apCount = 0;
+static SemaphoreHandle_t s_apMtx = nullptr;
+static void apMtxInit() { if (!s_apMtx) s_apMtx = xSemaphoreCreateMutex(); }
 // Load the last analyzer session from SD (runs once per reconnect).
 static bool s_sessionLoaded = false;
 static void loadLastSession() {
@@ -72,17 +80,26 @@ static void loadLastSession() {
     for (auto& o : objs) {
         String ssid; extractJsonStr(o, "ssid", ssid);
         long rssi = extractJsonNum(o, "rssi", -100);
-        if (ssid.length()) s_liveAps.push_back({ssid, (int8_t)rssi});
+        if (ssid.length() && s_apCount < LIVE_AP_MAX) {
+            memset(s_aps[s_apCount].ssid, 0, 33);
+            strlcpy(s_aps[s_apCount].ssid, ssid.c_str(), 33);
+            s_aps[s_apCount].rssi = (int8_t)rssi;
+            s_apCount++;
+        }
     }
-    logLine("analyzer: last session loaded (" + String(s_liveAps.size()) + " APs)");
+    logLine("analyzer: last session loaded (" + String(s_apCount) + " APs)");
 }
 
 std::vector<std::pair<String,int8_t>> liveAps() {
-    if (!s_analyzer && s_liveAps.empty()) loadLastSession();
-    portENTER_CRITICAL(&s_liveMux);
-    auto copy = s_liveAps;
-    portEXIT_CRITICAL(&s_liveMux);
-    return copy;
+    if (!s_analyzer && s_apCount == 0) loadLastSession();
+    std::vector<std::pair<String,int8_t>> out;
+    apMtxInit();
+    if (xSemaphoreTake(s_apMtx, pdMS_TO_TICKS(100))) {
+        for (int i = 0; i < s_apCount; i++)
+            out.push_back({String(s_aps[i].ssid), s_aps[i].rssi});
+        xSemaphoreGive(s_apMtx);
+    }
+    return out;
 }
 
 static uint8_t s_hopCh = 1;
@@ -91,10 +108,11 @@ static TaskHandle_t s_hopTask = nullptr;
 static uint32_t s_startedAt = 0;
 
 LiveStats liveStats() {
+    apMtxInit();
     if (!s_analyzer && s_live.total == 0) loadLastSession();
-    portENTER_CRITICAL(&s_liveMux);
+    xSemaphoreTake(s_apMtx, portMAX_DELAY);
     LiveStats copy = s_live;
-    portEXIT_CRITICAL(&s_liveMux);
+    xSemaphoreGive(s_apMtx);
     return copy;
 }
 
@@ -110,21 +128,29 @@ static void IRAM_ATTR analyzerCb(void* buf, wifi_promiscuous_pkt_type_t type) {
     else if (type == WIFI_PKT_CTRL) s_live.ctrl++;
     portEXIT_CRITICAL(&s_liveMux);
 
-    // track APs from beacons/probe responses
+    // track APs from beacons/probe responses (fixed table - see above)
     if (type == WIFI_PKT_MGMT) {
         const uint8_t* p = pkt->payload;
-        if ((p[0] & 0xFC) == 0x80 && len >= 38) {   // beacon or probe resp
+        if ((p[0] & 0xFC) == 0x80 && len >= 38) {
             uint8_t ssidLen = p[37];
             if (ssidLen > 0 && ssidLen <= 32 && 38 + ssidLen <= (int)len) {
-                String ssid((const char*)(p+38), ssidLen);
-                portENTER_CRITICAL(&s_liveMux);
-                bool found = false;
-                int8_t rssi2 = (int8_t)pkt->rx_ctrl.rssi;
-                for (auto& ap : s_liveAps)
-                    if (ap.first == ssid) { ap.second = rssi2; found = true; break; }
-                if (!found && s_liveAps.size() < 24)
-                    s_liveAps.push_back({ssid, rssi2});
-                portEXIT_CRITICAL(&s_liveMux);
+                if (xSemaphoreTake(s_apMtx, pdMS_TO_TICKS(20)) == pdTRUE) {
+                    bool found = false;
+                    for (int i = 0; i < s_apCount; i++) {
+                        if (strncmp(s_aps[i].ssid, (const char*)(p+38), ssidLen)==0
+                            && strlen(s_aps[i].ssid)==ssidLen) {
+                            s_aps[i].rssi = (int8_t)pkt->rx_ctrl.rssi;
+                            found = true; break;
+                        }
+                    }
+                    if (!found && s_apCount < LIVE_AP_MAX) {
+                        memset(s_aps[s_apCount].ssid, 0, 33);
+                        memcpy(s_aps[s_apCount].ssid, p+38, ssidLen);
+                        s_aps[s_apCount].rssi = (int8_t)pkt->rx_ctrl.rssi;
+                        s_apCount++;
+                    }
+                    xSemaphoreGive(s_apMtx);
+                }
             }
         }
     }
@@ -137,9 +163,11 @@ static void hopTask(void*) {
         s_hopCh = (s_hopCh % 13) + 1;
         esp_wifi_set_channel(s_hopCh, WIFI_SECOND_CHAN_NONE);
         delay(700);
-        portENTER_CRITICAL(&s_liveMux);
-        if (s_liveAps.size() > 16) s_liveAps.erase(s_liveAps.begin());
-        portEXIT_CRITICAL(&s_liveMux);
+        apMtxInit();
+        if (xSemaphoreTake(s_apMtx, pdMS_TO_TICKS(50)) == pdTRUE) {
+            if (s_apCount > 16) memmove(s_aps, s_aps+1, sizeof(LiveAp)*(--s_apCount));
+            xSemaphoreGive(s_apMtx);
+        }
         if (millis() - s_startedAt > ANALYZER_MAX_MS) {   // bounded runtime
             s_analyzer = false;
         }
@@ -154,11 +182,10 @@ static void hopTask(void*) {
         String out = "{\"total\":" + String(s_live.total) +
             ",\"mgmt\":" + String(s_live.mgmt) + ",\"data\":" + String(s_live.data) +
             ",\"ctrl\":" + String(s_live.ctrl) + ",\"aps\":[";
-        portENTER_CRITICAL(&s_liveMux);
-        for (size_t i = 0; i < s_liveAps.size(); i++) {
+        for (int i = 0; i < s_apCount; i++) {
             if (i) out += ",";
-            String ssid = s_liveAps[i].first; ssid.replace("\"","'");
-            out += "{\"ssid\":\"" + ssid + "\",\"rssi\":" + String(s_liveAps[i].second) + "}";
+            String ssid(s_aps[i].ssid); ssid.replace("\"","'");
+            out += "{\"ssid\":\"" + ssid + "\",\"rssi\":" + String(s_aps[i].rssi) + "}";
         }
         out += "]}";
         encryptToFile("/analyzer_last.enc", out);
@@ -176,8 +203,9 @@ static void hopTask(void*) {
 void analyzerStart() {
     if (s_analyzer || s_sniffing || s_attacking) return;
     s_sessionLoaded = false;
+    apMtxInit();
+    if (xSemaphoreTake(s_apMtx, pdMS_TO_TICKS(100))) { s_apCount = 0; xSemaphoreGive(s_apMtx); }
     s_live = LiveStats();
-    s_liveAps.clear();
     WiFi.mode(WIFI_AP_STA);
     WiFi.softAPdisconnect(true);         // offline mode: full radio for sniffing
     delay(100);
