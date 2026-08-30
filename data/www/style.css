@@ -3,19 +3,22 @@
    Theme via [data-theme] on <html>; persisted in localStorage.
    Purple accent, system font stack (no webfonts - device is offline).
    ==========================================================================*/
+/* WifiPhisher-inspired palette: near-black + terminal green + glow */
 :root, [data-theme="dark"]{
-  --bg:#0b0b12; --bg2:#10101a; --panel:#14141f; --panel2:#1c1c2b;
-  --text:#e2e2f0; --muted:#8b8ba7; --accent:#a855f7; --accent2:#c084fc;
-  --accent-dim:#3b1a5e; --border:#262640; --shadow:0 4px 16px rgba(0,0,0,.4);
-  --ok:#22c55e; --warn:#eab308; --err:#ef4444;
-  --code-bg:#0d0d16;
+  --bg:#0f0f0f; --bg2:#141414; --panel:#1e1e1e; --panel2:#252525;
+  --text:#e0e0e0; --muted:#6c757d; --accent:#00e676; --accent2:#69f0ae;
+  --accent-dim:rgba(0,230,118,.1); --border:#333; --shadow:0 4px 16px rgba(0,0,0,.55);
+  --ok:#00e676; --warn:#eab308; --err:#ff5252;
+  --code-bg:#000;
+  --glow:0 0 10px rgba(0,230,118,.4);
 }
 [data-theme="light"]{
-  --bg:#f2f2f7; --bg2:#ffffff; --panel:#ffffff; --panel2:#f0f0f8;
-  --text:#1c1c28; --muted:#6b6b80; --accent:#7c3aed; --accent2:#8b5cf6;
-  --accent-dim:#ede9fe; --border:#dcdce8; --shadow:0 2px 10px rgba(30,30,60,.08);
-  --ok:#16a34a; --warn:#ca8a04; --err:#dc2626;
-  --code-bg:#16161f;
+  --bg:#f4f6f4; --bg2:#ffffff; --panel:#ffffff; --panel2:#eef2ee;
+  --text:#1a1f1a; --muted:#6b756b; --accent:#00a84f; --accent2:#00c853;
+  --accent-dim:#e2f6e9; --border:#d4dcd4; --shadow:0 2px 10px rgba(30,60,30,.08);
+  --ok:#00a84f; --warn:#ca8a04; --err:#d32f2f;
+  --code-bg:#10241a;
+  --glow:none;
 }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
@@ -245,3 +248,11 @@ pre.example{background:var(--code-bg);border:1px solid var(--border);border-radi
   padding:36px 32px;border-radius:16px;width:min(340px,92vw);box-shadow:var(--shadow)}
 .login-card h2{font-size:18px;margin-bottom:4px}
 .login-card p{font-size:13px;margin-top:0}
+
+/* WifiPhisher-style accents: glowing brand + green terminal highlights */
+#brand .bname{text-shadow:var(--glow)}
+#brand svg{filter:drop-shadow(0 0 6px rgba(0,230,118,.5))}
+button.primary,.btn.primary{box-shadow:none}
+button.primary:hover{box-shadow:0 0 8px rgba(0,230,118,.35)}
+[data-theme="light"] #brand .bname{text-shadow:none}
+[data-theme="light"] #brand svg{filter:none}

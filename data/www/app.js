@@ -1053,6 +1053,10 @@ async function doDestroy(){
 }
 async function refreshStatus(){
   const s=await api("/api/status");
+  handleStatus(s);
+  applyStatus(s);
+}
+function applyStatus(s){
   const up=Math.floor(s.uptime), hh=Math.floor(up/3600), mm=Math.floor(up%3600/60), ss=up%60;
   const st=s.scriptState==="RUNNING"?["run","Running"]:s.scriptState==="FINISHED"?["fin","Finished"]:["sb","Standby"];
   $("#safeWarn").innerHTML = s.safeMode
@@ -1412,3 +1416,44 @@ api("/api/status").then(s=>{
   if(s.fw){ $("#brandVer").textContent="v"+s.fw; $("#footVer").textContent=FW_FOOT; }
 }).catch(()=>{});
 const FW_FOOT="LilyStrike — for authorized testing only";
+
+/* ---- WebSocket live link (WifiPhisher-style push) ----
+   The device pushes {"e":"status","d":{...}} every 2s and {"e":"log","d":"..."}
+   on every log line. Replaces most polling; REST stays as fallback. */
+let ws=null, wsBackoff=1000, lastStatus=null;
+function wsSetDot(up){
+  const d=$("#wsDot"); if(!d)return;
+  d.style.background=up?"var(--accent)":"#555";
+  d.style.boxShadow=up?"var(--glow)":"none";
+}
+function handleStatus(s){
+  lastStatus=s;
+  const badge=$("#hdrState");
+  if(badge){
+    const st=s.scriptState==="RUNNING"?["run","Running"]:s.scriptState==="FINISHED"?["fin","Finished"]:["sb","Standby"];
+    badge.className="badge "+st[0];
+    badge.textContent=s.scriptState==="RUNNING"&&s.scriptName?s.scriptName:st[1];
+  }
+  const ram=$("#hdrRam");
+  if(ram) ram.textContent=`RAM ${(s.heap/1024).toFixed(0)}KB`;
+  const net=$("#hdrNet");
+  if(net) net.textContent=s.netConnected?`STA: ${s.netSsid} (${s.netIp})`:"STA: not connected";
+  if(location.hash==="#status"&&$("#statT")) applyStatus(s);
+}
+function wsInit(){
+  try{ ws=new WebSocket(`ws://${location.host}/ws`); }catch(e){ return; }
+  ws.onopen=()=>{ wsBackoff=1000; wsSetDot(true); };
+  ws.onmessage=(m)=>{
+    try{
+      const msg=JSON.parse(m.data);
+      if(msg.e==="status") handleStatus(msg.d);
+      else if(msg.e==="log"){
+        const lg=$("#logOut");
+        if(lg){ lg.textContent+=msg.d+"\n"; lg.scrollTop=lg.scrollHeight; }
+      }
+    }catch(e){}
+  };
+  ws.onclose=()=>{ wsSetDot(false); setTimeout(wsInit, wsBackoff); wsBackoff=Math.min(wsBackoff*2,15000); };
+  ws.onerror=()=>{ try{ws.close();}catch(e){} };
+}
+document.addEventListener("DOMContentLoaded", wsInit);

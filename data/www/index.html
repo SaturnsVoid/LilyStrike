@@ -3,7 +3,7 @@
 <html lang="en" data-theme="dark"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LilyStrike</title>
-<link rel="stylesheet" href="/style.css?v=38">
+<link rel="stylesheet" href="/style.css?v=52">
 </head><body>
 <div id="app">
   <aside id="sidebar">
@@ -11,12 +11,14 @@
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
         <path d="M13 2 4.5 13.5H11L9.5 22 19.5 9.5H12.5L13 2Z"
           fill="currentColor" stroke="currentColor" stroke-width="1"
-          style="color:#a855f7"/>
+          style="color:#00e676"/>
       </svg>
       <div>
         <div class="bname">Lily<span>Strike</span></div>
         <span class="bver" id="brandVer"></span>
       </div>
+      <span id="wsDot" title="live link" style="margin-left:auto;width:9px;height:9px;
+        border-radius:50%;background:#555;box-shadow:none;transition:all .3s"></span>
     </div>
     <nav id="nav"></nav>
     <footer id="footVer" style="display:flex;justify-content:space-between;align-items:center">
@@ -24,10 +26,17 @@
       <a href="#" id="logout" style="color:var(--muted);font-size:12px">Logout</a>
     </footer>
   </aside>
-  <main id="view"></main>
+  <main id="view">
+    <div id="hdrStrip" style="display:flex;align-items:center;gap:14px;padding:8px 18px;
+      background:var(--panel);border-bottom:1px solid var(--border);font-size:12.5px">
+      <span class="badge sb" id="hdrState">Standby</span>
+      <span class="muted" id="hdrRam"></span>
+      <span class="muted" id="hdrNet"></span>
+    </div>
+  </main>
 </div>
 <button id="themeBtn" title="Toggle theme"></button>
 <div id="modalHost"></div>
 <div id="toastHost"></div>
-<script src="/app.js?v=38"></script>
+<script src="/app.js?v=52"></script>
 </body></html>
