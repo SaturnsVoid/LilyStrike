@@ -1322,8 +1322,13 @@ bool begin() {
     // Hostname: helps users find the device without knowing the IP; also
     // registers <hostname>.local via mDNS on any network the device joins.
     WiFi.setHostname(cfg.hostname);
+    // Channel 6 pinned (not auto): auto parks on ch1, and a strong ch1
+    // neighbor AP (e.g. a mesh node) causes heavy interference + flappy
+    // client links. Ch6/11 are usually clean; AP+STA note: when the device
+    // joins a network as STA, the stack moves AP to the STA's channel
+    // (single radio) - that is expected and handled by auto-reconnect.
     WiFi.softAP(cfg.wifiSSID, strlen(cfg.wifiPass) >= 8 ? cfg.wifiPass : "dongle1234",
-                0, cfg.wifiHidden ? 1 : 0);
+                6, cfg.wifiHidden ? 1 : 0);
     // mDNS on AP-only: the responder must be told about the softAP interface
     // explicitly, otherwise .local never resolves (STA-only default).
     MDNS.begin(cfg.hostname);
