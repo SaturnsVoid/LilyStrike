@@ -13,14 +13,34 @@
 #include <lwip/sockets.h>
 #include <lwip/netif.h>
 #include <lwip/etharp.h>
-#include <netif/etharp.h>
+#include <esp_netif.h>
+#include <esp_netif_net_stack.h>
+#include <esp_netif.h>
+#include <esp_netif_net_stack.h>
 #include <vector>
 #include <algorithm>
+#include <esp_netif.h>
+#include <esp_netif_net_stack.h>
+
+// Resolve the STA lwIP netif the WifiPhisher way - netif_default can be the
+// AP netif in AP+STA mode, and calling etharp against the wrong netif is
+// what reset the device.
+static struct netif* staNetif() {
+    esp_netif_t* en = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (!en) return nullptr;
+    return (struct netif*)esp_netif_get_netif_impl(en);
+}
 
 namespace hostrecon {
 
 static volatile bool s_scanning = false;
 bool scanning() { return s_scanning; }
+
+static struct netif* staNetif() {
+    esp_netif_t* en = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (!en) return nullptr;
+    return (struct netif*)esp_netif_get_netif_impl(en);
+}
 
 static String macStr(const uint8_t* m) {
     char b[18];
@@ -32,35 +52,32 @@ static String macStr(const uint8_t* m) {
 std::vector<Host> arpSweep() {
     std::vector<Host> out;
     if (WiFi.status() != WL_CONNECTED) return out;
+    struct netif* nif = staNetif();        // BUGFIX: was netif_default (AP netif
+    if (!nif) { s_scanning = false; return out; }   // in AP+STA -> crash)
     s_scanning = true;
 
     IPAddress mine = WiFi.localIP();
-    IPAddress gw = WiFi.gatewayIP();
     uint32_t base = (mine[0]<<24)|(mine[1]<<16)|(mine[2]<<8);
     uint8_t myLast = mine[3];
 
-    // Ask every address in the /24 (skip ours). ARP replies populate lwIP's
-    // table; we poll entries afterward. Batches + yields keep lwIP alive.
     for (int last = 1; last < 255; last++) {
         if (last == myLast) continue;
-        IPAddress ip((base>>24)&0xFF, (base>>16)&0xFF, (base>>8)&0xFF, last);
         ip4_addr_t dest;
-        dest.addr = static_cast<uint32_t>(ip);
-        etharp_request(netif_default, &dest);
+        dest.addr = base | last;
+        etharp_request(nif, &dest);
         if ((last % 16) == 0) delay(2);
     }
     delay(600);   // let replies land
 
     for (int last = 1; last < 255; last++) {
         if (last == myLast) continue;
-        IPAddress ip((base>>24)&0xFF, (base>>16)&0xFF, (base>>8)&0xFF, last);
         ip4_addr_t dest;
-        dest.addr = static_cast<uint32_t>(ip);
+        dest.addr = base | last;
         struct eth_addr* eth = nullptr;
         const ip4_addr_t* ipret = nullptr;
-        if (etharp_find_addr(netif_default, &dest, &eth, &ipret) >= 0 && eth) {
+        if (etharp_find_addr(nif, &dest, &eth, &ipret) >= 0 && eth) {
             Host h;
-            h.ip = ip.toString();
+            h.ip = IPAddress((base>>24)&0xFF, (base>>16)&0xFF, (base>>8)&0xFF, last).toString();
             h.mac = macStr(eth->addr);
             out.push_back(h);
         }

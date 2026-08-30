@@ -62,6 +62,8 @@ std::vector<std::pair<String,int8_t>> liveAps() {
 
 static uint8_t s_hopCh = 1;
 static TaskHandle_t s_hopTask = nullptr;
+#define ANALYZER_MAX_MS 120000
+static uint32_t s_startedAt = 0;
 
 LiveStats liveStats() {
     portENTER_CRITICAL(&s_liveMux);
@@ -103,25 +105,42 @@ static void IRAM_ATTR analyzerCb(void* buf, wifi_promiscuous_pkt_type_t type) {
 }
 
 static void hopTask(void*) {
+    // ROC visits: park on a channel briefly, then the radio returns home -
+    // the management AP keeps beaconing between visits (WifiPhisher trick).
     while (s_analyzer) {
         s_hopCh = (s_hopCh % 13) + 1;
-        esp_wifi_set_channel(s_hopCh, WIFI_SECOND_CHAN_NONE);
-        delay(400);
-        // prune stale APs occasionally (keep list fresh)
+        wifi_roc_req_t roc = {
+            .ifx = WIFI_IF_STA,
+            .type = WIFI_ROC_REQ,
+            .channel = s_hopCh,
+            .sec_channel = WIFI_SECOND_CHAN_NONE,
+            .wait_time_ms = 500,
+            .rx_cb = nullptr,
+            .done_cb = nullptr
+        };
+        if (esp_wifi_remain_on_channel(&roc) != ESP_OK) delay(200);
+        else delay(500);
         portENTER_CRITICAL(&s_liveMux);
         if (s_liveAps.size() > 16) s_liveAps.erase(s_liveAps.begin());
         portEXIT_CRITICAL(&s_liveMux);
+        if (millis() - s_startedAt > ANALYZER_MAX_MS) {   // bounded runtime
+            s_analyzer = false;
+        }
     }
+    esp_wifi_set_promiscuous(false);
+    logLine("analyzer: stopped (auto or requested)");
     vTaskDelete(nullptr);
 }
 
+// BUGFIX: the old version tore down the management AP for hopping - the
+// Stop request could then never reach the device. Now we ROC-hop (bounded
+// temporary channel visits on the STA) and the AP STAYS UP the whole time.
+#define ANALYZER_MAX_MS 120000
 void analyzerStart() {
     if (s_analyzer || s_sniffing || s_attacking) return;
     s_live = LiveStats();
     s_liveAps.clear();
-    WiFi.mode(WIFI_AP_STA);
-    WiFi.softAPdisconnect(true);
-    delay(100);
+    WiFi.mode(WIFI_AP_STA);              // AP stays up - no softAPdisconnect!
     esp_wifi_set_promiscuous(true);
     const wifi_promiscuous_filter_t filt = {
         .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA |
@@ -129,16 +148,15 @@ void analyzerStart() {
     esp_wifi_set_promiscuous_filter(&filt);
     esp_wifi_set_promiscuous_rx_cb(&analyzerCb);
     s_analyzer = true;
+    s_startedAt = millis();
     xTaskCreatePinnedToCore(hopTask, "hopper", 4096, nullptr, 1, &s_hopTask, 0);
-    logLine("analyzer: started (channel hopping)");
+    logLine("analyzer: started (ROC hopping, AP stays up)");
 }
 void analyzerStop() {
     if (!s_analyzer) return;
     s_analyzer = false;
-    delay(200);
+    delay(250);                          // let the hop task exit its ROC
     esp_wifi_set_promiscuous(false);
-    WiFi.mode(WIFI_AP);
-    WiFi.softAP(cfg.wifiSSID, cfg.wifiPass);
     logLine("analyzer: stopped");
 }
 

