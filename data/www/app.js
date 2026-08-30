@@ -750,7 +750,8 @@ async function wifiscanView(){
   <div class="panel"><h2>${icon("wifi")} Live Packet Analyzer</h2>
    <p class="muted">Channel-hopping live feed: frames by type + APs seen with signal. The device goes OFFLINE while analyzing (single radio) and the AP returns automatically when done (max 2 min, or Stop).</p>
    <button class="primary" id="anBtn" onclick="toggleAnalyzer()">Start Analyzer</button>
-   <div id="liveStats" style="display:none;margin-top:12px">
+   <div id="liveStats" style="margin-top:12px">
+     <p class="muted" style="font-size:12px">Shows last session results if the device has analyzed before.</p>
      <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:10px">
        <div>Total: <b id="lvTotal">0</b></div>
        <div>Mgmt: <b id="lvMgmt">0</b></div>
@@ -798,7 +799,8 @@ async function wifiscanView(){
   <div class="panel"><h2>${icon("wifi")} Live Packet Analyzer</h2>
    <p class="muted">Channel-hopping live feed: frames by type + APs seen with signal. The device goes OFFLINE while analyzing (single radio) and the AP returns automatically when done (max 2 min, or Stop).</p>
    <button class="primary" id="anBtn" onclick="toggleAnalyzer()">Start Analyzer</button>
-   <div id="liveStats" style="display:none;margin-top:12px">
+   <div id="liveStats" style="margin-top:12px">
+     <p class="muted" style="font-size:12px">Shows last session results if the device has analyzed before.</p>
      <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:10px">
        <div>Total: <b id="lvTotal">0</b></div>
        <div>Mgmt: <b id="lvMgmt">0</b></div>

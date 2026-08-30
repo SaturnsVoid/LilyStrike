@@ -20,6 +20,8 @@
 #include "wifiattack.h"
 #include "config.h"
 #include "hw.h"
+#include "util.h"
+#include "crypt.h"
 #include "ducky.h"
 #include <WiFi.h>
 #include <esp_wifi.h>
@@ -53,7 +55,30 @@ static volatile bool s_analyzer = false;
 static LiveStats s_live;                 // guarded by s_liveMux, not volatile
 static portMUX_TYPE s_liveMux = portMUX_INITIALIZER_UNLOCKED;
 static std::vector<std::pair<String,int8_t>> s_liveAps;   // ssid -> rssi
+// Load the last analyzer session from SD (runs once per reconnect).
+static bool s_sessionLoaded = false;
+static void loadLastSession() {
+    if (s_sessionLoaded) return;
+    s_sessionLoaded = true;
+    String j;
+    if (!decryptFromFile("/analyzer_last.enc", j) || j.length() < 10) return;
+    s_live.total = extractJsonNum(j, "total", 0);
+    s_live.mgmt = extractJsonNum(j, "mgmt", 0);
+    s_live.data = extractJsonNum(j, "data", 0);
+    s_live.ctrl = extractJsonNum(j, "ctrl", 0);
+    // parse "aps":[...] - reuse our array parser on a wrapped object
+    std::vector<String> objs;
+    extractJsonArr(j, "aps", objs);
+    for (auto& o : objs) {
+        String ssid; extractJsonStr(o, "ssid", ssid);
+        long rssi = extractJsonNum(o, "rssi", -100);
+        if (ssid.length()) s_liveAps.push_back({ssid, (int8_t)rssi});
+    }
+    logLine("analyzer: last session loaded (" + String(s_liveAps.size()) + " APs)");
+}
+
 std::vector<std::pair<String,int8_t>> liveAps() {
+    if (!s_analyzer && s_liveAps.empty()) loadLastSession();
     portENTER_CRITICAL(&s_liveMux);
     auto copy = s_liveAps;
     portEXIT_CRITICAL(&s_liveMux);
@@ -66,6 +91,7 @@ static TaskHandle_t s_hopTask = nullptr;
 static uint32_t s_startedAt = 0;
 
 LiveStats liveStats() {
+    if (!s_analyzer && s_live.total == 0) loadLastSession();
     portENTER_CRITICAL(&s_liveMux);
     LiveStats copy = s_live;
     portEXIT_CRITICAL(&s_liveMux);
@@ -122,6 +148,22 @@ static void hopTask(void*) {
     // restore management AP
     WiFi.mode(WIFI_AP);
     WiFi.softAP(cfg.wifiSSID, cfg.wifiPass);
+    // Save session results so they survive browser refreshes / offline period
+    // (SD writes are safe again now that the radio is done).
+    if (SD_MMC.cardType() != CARD_NONE) {
+        String out = "{\"total\":" + String(s_live.total) +
+            ",\"mgmt\":" + String(s_live.mgmt) + ",\"data\":" + String(s_live.data) +
+            ",\"ctrl\":" + String(s_live.ctrl) + ",\"aps\":[";
+        portENTER_CRITICAL(&s_liveMux);
+        for (size_t i = 0; i < s_liveAps.size(); i++) {
+            if (i) out += ",";
+            String ssid = s_liveAps[i].first; ssid.replace("\"","'");
+            out += "{\"ssid\":\"" + ssid + "\",\"rssi\":" + String(s_liveAps[i].second) + "}";
+        }
+        out += "]}";
+        encryptToFile("/analyzer_last.enc", out);
+        logLine("analyzer: session saved to /analyzer_last.enc");
+    }
     logLine("analyzer: stopped - AP restored");
     vTaskDelete(nullptr);
 }
@@ -133,6 +175,7 @@ static void hopTask(void*) {
 #define ANALYZER_MAX_MS 120000
 void analyzerStart() {
     if (s_analyzer || s_sniffing || s_attacking) return;
+    s_sessionLoaded = false;
     s_live = LiveStats();
     s_liveAps.clear();
     WiFi.mode(WIFI_AP_STA);
