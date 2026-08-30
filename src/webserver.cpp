@@ -737,7 +737,11 @@ static void hWifiScan() {
         String ssid = WiFi.SSID(i);
         ssid.replace("\"","'");   // keep JSON valid
         bool hidden = ssid.length()==0;
+        uint8_t* b = WiFi.BSSID(i);
+        char bmac[18]; snprintf(bmac, sizeof(bmac), "%02X:%02X:%02X:%02X:%02X:%02X",
+            b[0],b[1],b[2],b[3],b[4],b[5]);
         out += "{\"ssid\":\"" + (hidden?"(hidden)":ssid) + "\"" +
+               ",\"bssid\":\"" + bmac + "\"" +
                ",\"rssi\":" + String(WiFi.RSSI(i)) +
                ",\"ch\":" + String(WiFi.channel(i)) +
                ",\"secure\":" + String(WiFi.encryptionType(i)!=WIFI_AUTH_OPEN?"true":"false") +

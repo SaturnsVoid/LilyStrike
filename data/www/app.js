@@ -741,50 +741,56 @@ async function doPortScan(){
 }
 
 /* ============================= WIFI SCAN VIEW ============================ */
-/* ============================= WIFI SCAN VIEW ============================ */
-async function wifiscanView(){
+// Combined WiFi Tools: scanner + live analyzer + host recon.
+let scanTimer=null, anTimer=null, anOn=false;
+function wifiscanView(){
+  clearInterval(scanTimer); clearInterval(anTimer);
   view.innerHTML=`<div class="panel"><h2>${icon("wifi")} WiFi Scanner</h2>
    <p class="muted">Recon for IF_SSID targeting and CONNECT_AP. Uses AP+STA mode so your management AP stays up. Scan takes ~3 seconds.</p>
    <button class="primary" onclick="doScan()">Scan now</button>
    <span class="muted" style="margin-left:10px;font-size:12px" id="scanInfo"></span>
    <table id="scanTable" style="margin-top:12px"></table></div>
   <div class="panel"><h2>${icon("wifi")} Live Packet Analyzer</h2>
-   <p class="muted">Channel-hopping live feed: frames by type + APs seen with signal. The device goes OFFLINE while analyzing (single radio) and the AP returns automatically when done (max 2 min, or Stop).</p>
+   <p class="muted">Channel-hopping live feed with frame + AP details. Device goes OFFLINE while analyzing (single radio); AP returns automatically (max 2 min, or Stop).</p>
    <button class="primary" id="anBtn" onclick="toggleAnalyzer()">Start Analyzer</button>
    <div id="liveStats" style="margin-top:12px">
-     <p class="muted" style="font-size:12px">Shows last session results if the device has analyzed before.</p>
-     <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:10px">
+     <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:8px">
        <div>Total: <b id="lvTotal">0</b></div>
        <div>Mgmt: <b id="lvMgmt">0</b></div>
        <div>Data: <b id="lvData">0</b></div>
        <div>Ctrl: <b id="lvCtrl">0</b></div>
        <div>Channel: <b id="lvCh">-</b></div>
      </div>
+     <div class="muted" style="font-size:12px;margin-bottom:4px">Last frame:
+       <span class="mono" id="lvLast">-</span></div>
      <table id="liveAps"></table>
-   </div></div>`;
-  doScan();   // auto-scan on open
-  pollLive(); // show last session results if any
+   </div></div>
+  <div class="panel"><h2>${icon("gauge")} Host Reconnaissance</h2>
+   <p class="muted">Requires the device to be joined to the target network (script: CONNECT_AP). ARP sweep finds live hosts; port scan probes one host.</p>
+   <button class="primary" id="arpBtn" onclick="doArpSweep()">ARP Sweep (find hosts)</button>
+   <table id="hostTable" style="margin-top:12px"></table>
+   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px">
+     <input id="psIp" placeholder="192.168.x.x" style="max-width:180px">
+     <input id="psPorts" placeholder="ports: empty=top25, or 22,80,443" style="max-width:220px">
+     <button class="small primary" id="psBtn" onclick="doPortScan()">Scan ports</button>
+   </div>
+   <div id="psResult" style="margin-top:10px"></div></div>`;
+  doScan();
+  pollLive();
 }
 async function pollLive(){
   try{ const s=await api("/api/analyzer/live");
     $("#lvTotal").textContent=s.total; $("#lvMgmt").textContent=s.mgmt;
     $("#lvData").textContent=s.data; $("#lvCtrl").textContent=s.ctrl;
     $("#lvCh").textContent=s.channel||"-";
-    $("#liveAps").innerHTML="<tr><th>AP (last session)</th><th>Signal</th></tr>"+
-      s.aps.map(x=>`<tr><td>${esc(x.ssid)}</td><td>${x.rssi} dBm</td></tr>`).join("")
-      || `<tr><td colspan="2" class="muted">No APs recorded yet</td></tr>`;
-  }catch(e){}
-}
-/* analyzer toggle + live/last-session display */
-let anTimer=null, anOn=false;
-async function pollLive(){
-  try{ const s=await api("/api/analyzer/live");
-    $("#lvTotal").textContent=s.total; $("#lvMgmt").textContent=s.mgmt;
-    $("#lvData").textContent=s.data; $("#lvCtrl").textContent=s.ctrl;
-    $("#lvCh").textContent=s.channel||"-";
-    $("#liveAps").innerHTML="<tr><th>AP (last session)</th><th>Signal</th></tr>"+
-      s.aps.map(x=>`<tr><td>${esc(x.ssid)}</td><td>${x.rssi} dBm</td></tr>`).join("")
-      || `<tr><td colspan="2" class="muted">No APs recorded yet</td></tr>`;
+    $("#lvLast").textContent = s.last
+      ? `${s.last.type}/${s.last.subtype} ${esc(s.last.src)} -> ${esc(s.last.dst)} ${s.last.len}B ${s.last.rssi}dBm ch${s.last.channel}`
+      : "-";
+    $("#liveAps").innerHTML="<tr><th>SSID</th><th>BSSID</th><th>Ch</th><th>Security</th><th>Signal</th></tr>"+
+      s.aps.map(x=>`<tr><td>${esc(x.ssid)}</td><td class="mono">${esc(x.bssid)}</td>
+        <td>${x.channel}</td><td>${x.secure?"<span class='badge run'>Secured</span>":"<span class='badge sb'>Open</span>"}</td>
+        <td>${x.rssi} dBm</td></tr>`).join("")
+      || `<tr><td colspan="5" class="muted">No APs recorded yet</td></tr>`;
   }catch(e){}
 }
 async function toggleAnalyzer(){
@@ -793,7 +799,7 @@ async function toggleAnalyzer(){
     await api("/api/analyzer/stop",{method:"POST"});
     anOn=false; btn.textContent="Start Analyzer";
     clearInterval(anTimer); anTimer=null;
-    setTimeout(pollLive, 2500);   // show final results once AP is back
+    setTimeout(pollLive, 2500);
   } else {
     if(!(await confirmModal("Start live packet analyzer?\nThe device goes offline until analysis completes.")))return;
     await api("/api/analyzer/start",{method:"POST"});
@@ -809,18 +815,54 @@ async function doScan(){
     const list=await api("/api/wifiscan");
     list.sort((a,b)=>b.rssi-a.rssi);
     $("#scanInfo").textContent=list.length+" network(s)";
-    $("#scanTable").innerHTML="<tr><th>SSID</th><th>Signal</th><th>Ch</th><th>Security</th></tr>"+
+    $("#scanTable").innerHTML="<tr><th>SSID</th><th>BSSID</th><th>Ch</th><th>Security</th><th>Signal</th><th></th></tr>"+
       list.map(n=>{
         const bars=n.rssi>-55?4:n.rssi>-67?3:n.rssi>-75?2:1;
         const sec=n.hidden?"hidden":n.secure?"Secured":"Open";
+        const acts=`<a href="#" onclick="sendToDeauth('${esc(n.ssid)}');return false">Deauth</a> ·
+          <a href="#" onclick="sendToEvil('${esc(n.ssid)}');return false">EvilAP</a>`;
         return `<tr><td>${esc(n.ssid)}</td>
-          <td>${"&#9679;".repeat(bars)}${"&#9675;".repeat(4-bars)} <span class="muted">${n.rssi} dBm</span></td>
+          <td class="mono">${n.bssid||"-"}</td>
           <td>${n.ch}</td>
-          <td>${n.secure?"<span class='badge run'>Secured</span>":"<span class='badge sb'>Open</span>"}</td></tr>`;
-      }).join("") || `<tr><td colspan="4" class="muted">No networks found</td></tr>`;
+          <td>${n.secure?"<span class='badge run'>Secured</span>":"<span class='badge sb'>Open</span>"}</td>
+          <td>${"&#9679;".repeat(bars)}${"&#9675;".repeat(4-bars)} <span class="muted">${n.rssi} dBm</span></td>
+          <td class="f-actions">${acts}</td></tr>`;
+      }).join("") || `<tr><td colspan="6" class="muted">No networks found</td></tr>`;
   }catch(e){ $("#scanInfo").textContent="scan failed"; }
 }
-
+function sendToDeauth(ssid){
+  location.hash="#deauth";
+  setTimeout(()=>{ const el=$("#deauthSsid"); if(el){ el.value=ssid; toast("Target loaded: "+ssid); } }, 60);
+}
+function sendToEvil(ssid){
+  location.hash="#evilap";
+  setTimeout(()=>{ const el=$("#evilSsid"); if(el){ el.value=ssid; toast("EvilAP SSID loaded: "+ssid); } }, 60);
+}
+async function doArpSweep(){
+  $("#arpBtn").disabled=true; $("#arpBtn").textContent="Sweeping...";
+  try{
+    const hosts=await jpost("/api/recon/arp",{});
+    $("#hostTable").innerHTML="<tr><th>IP</th><th>MAC</th></tr>"+
+      hosts.map(h=>`<tr><td class="mono">${esc(h.ip)}</td><td class="mono">${esc(h.mac)}</td></tr>`).join("")
+      || `<tr><td colspan="2" class="muted">No live hosts found</td></tr>`;
+    if(hosts.length) toast(hosts.length+" host(s) found");
+  }catch(e){ toast("Sweep failed","err"); }
+  $("#arpBtn").disabled=false; $("#arpBtn").textContent="ARP Sweep (find hosts)";
+}
+async function doPortScan(){
+  const ip=$("#psIp").value.trim(); if(!ip)return toast("Enter a host IP","err");
+  const plist=$("#psPorts").value.trim();
+  $("#psBtn").disabled=true; $("#psBtn").textContent="Scanning...";
+  $("#psResult").innerHTML='<span class="muted">scanning (up to ~30s for filtered ports)...</span>';
+  try{
+    const r=await jpost("/api/recon/ports",{ip, ports: plist||undefined});
+    const open=r.open||[];
+    $("#psResult").innerHTML=open.length
+      ? `<b>Open ports:</b> ${open.map(p=>`<span class="badge run" style="margin:2px">${p}</span>`).join(" ")}`
+      : `<span class="muted">No open ports found</span>`;
+  }catch(e){ $("#psResult").innerHTML='<span class="err">scan failed</span>'; }
+  $("#psBtn").disabled=false; $("#psBtn").textContent="Scan ports";
+}
 
 /* ============================= EVILAP VIEW ============================= */
 let evilTimer=null, TPLS=["Generic WiFi","Apple","Google"];
@@ -1372,9 +1414,8 @@ SCREEN_OFF`],
 /* ============================== ROUTER ================================ */
 const NAV=[
  ["tools","BadUSB","bolt"],["files","Files","folder"],
- ["wifiscan","WiFi Scan","wifi"],
+ ["wifiscan","WiFi Tools","wifi"],
  ["deauth","Deauth","bolt"],
- ["recon","Recon","gauge"],
  ["control","Live Control","keyboard"],["evilap","EvilAP","wifi"],
  ["reference","Reference","book"],["status","Status","gauge"],
  ["settings","Settings","gear"],
@@ -1390,7 +1431,6 @@ function route(){
   if(h==="files")filesView();
   else if(h==="wifiscan")wifiscanView();
   else if(h==="deauth")deauthView();
-  else if(h==="recon")reconView();
   else if(h==="control")controlView();
   else if(h==="evilap")evilapView();
   else if(h==="reference")refView();
