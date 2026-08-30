@@ -38,6 +38,12 @@ const ICONS = {
   bolt:'<path d="M13 2 4.5 13.5H11L9.5 22 19.5 9.5H12.5L13 2Z" fill="currentColor"/>',
   os:'<rect x="3" y="4" width="18" height="12" rx="2" fill="currentColor"/><path d="M8 20h8l-1-3H9l-1 3Z" fill="currentColor"/>',
   script:'<path d="M6 2h8l4 4v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z" fill="currentColor"/><text x="8" y="17" font-size="9" fill="#fff" font-family="monospace">ds</text>',
+  // deauth: wifi arcs + cut slash (stroke) - distinct from tools' bolt
+  deauth:'<path d="M8.5 16.4a5 5 0 0 1 7 0M5 12.9a10 10 0 0 1 5.3-2.8M19 12.9a10 10 0 0 0-2-1.6M2 8.8a16 16 0 0 1 6-3.2M22 8.8a16 16 0 0 0-6-3.2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><circle cx="12" cy="19.5" r="1.3" fill="currentColor"/><path d="M3 2l19 19" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>',
+  // evilap: rogue antenna - mast + radiating arcs (stroke) - distinct from wifi
+  antenna:'<circle cx="12" cy="7" r="2.2" fill="currentColor"/><path d="M12 9.5V21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M7.8 11.2a6 6 0 0 1 0-8.4M16.2 2.8a6 6 0 0 1 0 8.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>',
+  // logout: door + arrow (stroke)
+  logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>',
 };
 const icon = (n,s=16) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none">${ICONS[n]||ICONS.file}</svg>`;
 
@@ -980,6 +986,7 @@ const REF_GROUPS=[
 ["Network & System",[
  ["GET_IP","Types the device IP (station IP if connected, else the AP IP). As a value command it can be compared in IF blocks.","IF GET_IP = 192.168.0.42\n  STRING home network\nEND_IF"],
  ["CONNECT_AP <ssid> [password]","Join a WiFi network as a client while keeping the config AP alive. Logs the result.","CONNECT_AP MyNetwork s3cret"],
+ ["DISCON_AP [erase]","Drop the station (client) WiFi link; the config AP stays up. Add 'erase' to also wipe the saved station credentials from NVS. Logs the result.","DISCON_AP"],
  ["WIFI_CONNECTED","Value command: true/false depending on station state.","IF WIFI_CONNECTED = true\n  STRING online\nEND_IF"],
  ["DETECT_OS","Fingerprint the host OS via the keyboard-LED side channel (~10 s, toggles your lock keys and restores them). Result is cached until unplug and shown on Status.","DETECT_OS\nIF_OS windows\n  GUI r\nEND_IF"],
  ["RESET_FIRM","Factory-reset all settings and reboot. DESTRUCTIVE.","RESET_FIRM"],
@@ -1389,8 +1396,8 @@ SCREEN_OFF`],
 const NAV=[
  ["tools","BadUSB","bolt"],["files","Files","folder"],
  ["wifiscan","WiFi Tools","wifi"],
- ["deauth","Deauth","bolt"],
- ["control","Live Control","keyboard"],["evilap","EvilAP","wifi"],
+ ["deauth","Deauth","deauth"],
+ ["control","Live Control","keyboard"],["evilap","EvilAP","antenna"],
  ["reference","Reference","book"],["status","Status","gauge"],
  ["settings","Settings","gear"],
 ];
@@ -1399,7 +1406,8 @@ function buildNav(){
     `<a href="#${h}" data-h="${h}">${icon(ic)} ${label}</a>`).join("")
     // Logout as a proper menu item (was a 12px muted link in the sidebar
     // footer nobody could find).
-    + `<a href="#" id="logout" style="color:var(--err)">${icon("gear")} Logout</a>`;
+    + `<div style="height:1px;background:var(--border);margin:10px 10px 4px"></div>`
+    + `<a href="#" id="logout" style="color:var(--err)">${icon("logout")} Logout</a>`;
 }
 function route(){
   clearInterval(statusTimer); clearInterval(evilTimer); clearInterval(ctrlTimer);
