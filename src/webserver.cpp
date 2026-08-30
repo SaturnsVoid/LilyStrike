@@ -583,7 +583,8 @@ static void hDeauthStatus() {
     requireAuth(); if (!isAuthed()) return;
     auto st = wifiattack::stats();
     json(200, String("{\"attacking\":") + (wifiattack::attacking()?"true":"false") +
-              ",\"deauths\":" + st.deauths + ",\"stations\":" + st.stations +
+              ",\"deauths\":" + st.deauths + ",\"drops\":" + st.deauthDrops +
+              ",\"stations\":" + st.stations +
               ",\"eapol\":" + st.eapol + "}");
 }
 static void hPcapStart() {

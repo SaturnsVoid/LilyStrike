@@ -662,8 +662,8 @@ async function pollDeauth(){
     const btn=$("#deauthBtn"); if(!btn) return;
     btn.style.display=s.attacking?"none":"";
     const sb=$("#deauthStopBtn"); if(sb) sb.style.display=s.attacking?"":"none";
-    $("#dDeauths").textContent=s.deauths; $("#dStas").textContent=s.stations;
-    $("#dEapol").textContent=s.eapol;
+    $("#dDeauths").textContent=s.deauths+(s.drops?" ("+s.drops+" dropped)":"");
+    $("#dStas").textContent=s.stations; $("#dEapol").textContent=s.eapol;
   }catch(e){}
 }
 async function doDeauth(){
