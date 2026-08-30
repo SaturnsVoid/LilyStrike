@@ -73,9 +73,16 @@ static bool sessionActive(const String& tok) {
     for (auto& t : s_tokens) if (t.length() && t == tok) return true;
     return false;
 }
+int sessionCount() {
+    int n = 0;
+    for (auto& t : s_tokens) if (t.length()) n++;
+    return n;
+}
 static void sessionAdd(const String& tok) {
     for (auto& t : s_tokens) if (!t.length()) { t = tok; return; }
-    // table full: evict the oldest (index 0) and shift
+    // table full: evict the oldest (index 0) and shift. LOG IT - a flood of
+    // logins here means something is re-authing repeatedly (field bug hunt).
+    logLine("web: session table FULL - evicting oldest");
     for (int i = 0; i < MAX_SESSIONS - 1; i++) s_tokens[i] = s_tokens[i + 1];
     s_tokens[MAX_SESSIONS - 1] = tok;
 }
@@ -329,7 +336,8 @@ static void hLogin() {
 } // namespace web (buildStatusJson is global: shared with ws push)
 
 String buildStatusJson() {
-    String s = "{";
+    extern int sessionCount();   // diagnostic: live session table occupancy
+    String s = "{\"sessions\":" + String(sessionCount()) + ",";
     s += "\"heap\":" + String(ESP.getFreeHeap()) +
          ",\"heapMin\":" + String(ESP.getMinFreeHeap()) +
          ",\"cpuMhz\":" + String(getCpuFrequencyMhz()) +
