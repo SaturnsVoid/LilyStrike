@@ -636,7 +636,16 @@ function deauthView(){
   view.innerHTML=`<div class="panel"><h2>${icon("wifi")} Deauth + Handshake Capture</h2>
    <p class="err">Disruptive attack. Device goes OFFLINE while running (channel conflict) and returns when done. BOOT button aborts. Authorized networks only!</p>
    <label>Target SSID<input id="deauthSsid" placeholder="Network to attack"></label>
-   <label>Duration (seconds, 5-300)<input id="deauthSecs" type="number" value="30" min="5" max="300" style="max-width:120px"></label>
+   <div style="display:flex;gap:8px;flex-wrap:wrap">
+     <label style="flex:1;min-width:140px">Duration (s, 5-300)<input id="deauthSecs" type="number" value="30" min="5" max="300"></label>
+     <label style="flex:1;min-width:180px">Method<select id="deauthMethod">
+       <option value="0">Deauth (classic, both directions)</option>
+       <option value="1">Disassociation</option>
+       <option value="2">Authentication flood</option>
+       <option value="3">EAPOL-Logoff</option>
+       <option value="4">Beacon spam (spoof target)</option>
+     </select></label>
+   </div>
    <button class="danger" id="deauthBtn" onclick="doDeauth()">Start Deauth + Capture</button>
    <button class="small" id="deauthStopBtn" style="display:none" onclick="api('/api/deauth/stop',{method:'POST'})">Stop</button>
    <div style="display:flex;gap:20px;margin-top:12px;flex-wrap:wrap">
@@ -670,7 +679,7 @@ async function doDeauth(){
   const ssid=$("#deauthSsid").value.trim(); if(!ssid)return toast("Enter target SSID","err");
   if(!(await confirmModal("Start deauth attack on '"+ssid+"'? Device goes offline until it completes.")))return;
   const secs=+($("#deauthSecs").value||30);
-  await jpost("/api/deauth/start",{ssid,seconds:secs});
+  await jpost("/api/deauth/start",{ssid,seconds:secs,method:+$("#deauthMethod").value});
   toast("Attack started - device going offline","err");
 }
 async function refreshPcapList(){
@@ -884,7 +893,7 @@ const REF_GROUPS=[
  ["BRUTEFORCE_PIN <len> [delayMs]","Types every numeric code of the given length (0000, 0001, ...), pressing Enter after each and backspacing for the next. Default 500 ms between attempts. Stop anytime via the web UI.","BRUTEFORCE_PIN 4 300"],
  ["BRUTEFORCE_LOGIN <file>","Types user/password pairs from a file on the SD card (lines like user:pass or user,pass). Tab between fields, Enter to submit, 800 ms pace.","BRUTEFORCE_LOGIN /creds.txt"],
  ["TUNNEL ON|OFF","Enable or disable external relay access (Settings > External Access).","TUNNEL ON"],
- ["DEAUTH <ssid> [seconds]","Deauth attack against an AP by SSID: scans for it, captures stations via promiscuous sniffing, sends deauth frames, captures EAPOL handshakes to /pcap/. Runs once for the given time then restores normal WiFi. Device OFFLINE during. BOOT aborts. AUTHORIZED NETWORKS ONLY.","DEAUTH TargetNetwork 30"],
+ ["DEAUTH <ssid> [seconds] [method]","Deauth attack against an AP by SSID: scans for it, captures stations via promiscuous sniffing, sends deauth frames, captures EAPOL handshakes to /pcap/. Methods: 0=deauth, 1=disassoc, 2=auth flood, 3=EAPOL-Logoff, 4=beacon spam. Runs once for the given time then restores normal WiFi. Device OFFLINE during. BOOT aborts. AUTHORIZED NETWORKS ONLY.","DEAUTH TargetNetwork 30 0"],
  ["PCAP_CAPTURE <seconds> [channel]","Promiscuous full-traffic WiFi capture to /pcap/*.pcap on SD (openable in Wireshark). Blocks the script while running.","PCAP_CAPTURE 60 6"],
 ]],
 ];

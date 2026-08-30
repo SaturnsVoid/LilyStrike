@@ -641,11 +641,12 @@ static void hDeauthStart() {
     requireAuth(); if (!isAuthed()) return;
     String body = server.arg("plain"), ssid;
     long secs = extractJsonNum(body, "seconds", 30);
+    long method = extractJsonNum(body, "method", 0);
     if (!extractJsonStr(body, "ssid", ssid) || !ssid.length())
         return jsonErr(400, "ssid required");
     if (wifiattack::attacking()) return jsonErr(409, "attack already running");
-    logLine("web: DEAUTH requested for '" + ssid + "'");
-    if (!wifiattack::startDeauth(ssid, constrain((long)secs, 5, 300)))
+    logLine("web: DEAUTH requested for '" + ssid + "' method " + String(method));
+    if (!wifiattack::startDeauth(ssid, constrain((long)secs, 5, 300), (uint8_t)constrain((long)method,0,4)))
         return jsonErr(500, "cannot start (busy or script running)");
     server.send(200, "application/json", "{\"ok\":true,\"warn\":\"device goes offline during attack\"}");
 }

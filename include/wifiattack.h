@@ -32,7 +32,14 @@ bool sniffing();
 Stats stats();
 
 bool busy();            // attacking || sniffing - SD writes should pause
-bool startDeauth(const String& ssid, uint32_t seconds);   // attempt-once flow
+enum Method : uint8_t {
+    M_DEAUTH = 0,       // classic deauth frames
+    M_DISASSOC,         // disassociation frames (type c0 -> a0)
+    M_AUTH_FLOOD,       // authentication request flood
+    M_EAPOL_LOGOFF,     // EAPOL-Logoff injection
+    M_BEACON_SPAM       // fake beacon spam on the target channel
+};
+bool startDeauth(const String& ssid, uint32_t seconds, uint8_t method = 0);
 void stop();                                              // abort + restore
 bool startPcap(const String& name, uint8_t channel, uint32_t seconds);
 void stopPcap();
