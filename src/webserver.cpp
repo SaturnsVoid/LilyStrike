@@ -90,8 +90,11 @@ void WebSrvShim::on(const char* path, WebRequestMethodComposite method, THandler
 }
 void WebSrvShim::onNotFound(THandlerFunction fn) {
     auto* h = new AsyncCallbackWebHandler();
-    h->setUri("/.+");                   // match anything not claimed above
-    h->setMethod((WebRequestMethodComposite)HTTP_GET);
+    // "/*" glob = match anything not claimed above. NOTE: "/.+" (regex) only
+    // works when the lib is built with ASYNCWEBSERVER_REGEX - otherwise it is
+    // matched literally and every static file 501s (seen in the field).
+    h->setUri("/*");
+    h->setMethod((WebRequestMethodComposite)(HTTP_GET | HTTP_POST));
     h->onRequest([fn](AsyncWebServerRequest* r) {
         s_cur = r; s_curBody = &s_bodies[r]; s_qHeaders = "";
         fn();
