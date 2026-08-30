@@ -1221,6 +1221,8 @@ static void hMcpTokenSet() {
 }
 void setupRoutes();    // defined below begin(): registers all API routes
 
+static volatile bool s_wsPushOnConnect = false;   // WS connect -> push soon
+
 bool begin() {
 
     // Mount the internal flash filesystem that holds /www (web UI).
@@ -1279,7 +1281,6 @@ bool begin() {
 // Periodic status push while clients are connected. Called from loop() via
 // handle() - cheap: one small JSON string only when ws clients exist.
 static uint32_t s_lastPush = 0;
-static volatile bool s_wsPushOnConnect = false;
 void handle() {
     if (!s_running) return;
     ws.cleanupClients();
