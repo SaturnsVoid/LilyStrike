@@ -31,6 +31,7 @@ bool attacking();
 bool sniffing();
 Stats stats();
 
+bool busy();            // attacking || sniffing - SD writes should pause
 bool startDeauth(const String& ssid, uint32_t seconds);   // attempt-once flow
 void stop();                                              // abort + restore
 bool startPcap(const String& name, uint8_t channel, uint32_t seconds);

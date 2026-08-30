@@ -50,6 +50,7 @@ static volatile bool s_sniffing = false;
 
 bool attacking() { return s_attacking; }
 bool sniffing()  { return s_sniffing; }
+bool busy()      { return s_attacking || s_sniffing; }
 Stats stats()    { return s_stats; }
 
 // ------------------------------------------------------- TX ground truth
@@ -59,55 +60,57 @@ static void IRAM_ATTR txDoneCb(const esp_80211_tx_info_t* info) {
     else { s_txDrop++; s_stats.deauthDrops = s_txDrop; }
 }
 
-// ------------------------------------------------- RAM ring -> writer task
-// Sniffer callbacks run in the WiFi task; SD I/O there starves the radio.
-// Callbacks push into a lock-free-ish single-producer/single-consumer ring;
-// a low-priority writer task drains it to the SD card.
-#define RING_SLOTS 128
-#define RING_MAX   512
-struct RingSlot { uint16_t len; uint8_t data[RING_MAX]; };
-static RingSlot* s_ring = nullptr;
-static volatile uint32_t s_head = 0, s_tail = 0;   // producer/consumer
 static File s_pcap;
-static TaskHandle_t s_writerTask = nullptr;
-static volatile bool s_writerRun = false;
-static volatile bool s_writerDone = true;
 
-static bool ringPush(const uint8_t* data, uint16_t len) {
-    if (!s_ring) return false;
-    uint32_t next = (s_head + 1) % RING_SLOTS;
-    if (next == s_tail) return false;            // full - drop (stat it)
-    s_ring[s_head].len = len;
-    memcpy(s_ring[s_head].data, data, len);
-    s_head = next;
-    return true;
+// ------------------------------------------------- RAM chunk buffer
+// SD writes during radio TX bursts are unreliable (power/FS pressure ->
+// short writes -> garbage incl_len -> "corrupt pcap"). Marauder solved the
+// same problem by buffering in RAM and saving once. We buffer up to 96KB
+// (free-heap safe) and flush the WHOLE chunk in one large sequential write
+// when full or at capture end - single FS op, no interleaving, and short
+// writes are detected instead of silently corrupting the file.
+static uint8_t* s_buf = nullptr;      // lazily allocated chunk buffer
+static size_t    s_bufCap = 0, s_bufUsed = 0;
+
+static void bufInit() {
+    if (s_buf) return;
+    for (size_t sz : {96*1024, 64*1024, 48*1024}) {
+        s_buf = (uint8_t*)malloc(sz);
+        if (s_buf) { s_bufUsed = 0; s_bufCap = sz; break; }
+    }
 }
 
-static void writerTask(void*) {
-    // Drain until the producer stops AND the ring is empty. The close-race
-    // (main closing the file mid-record) is what corrupted captures before.
-    while (s_writerRun || s_tail != s_head) {
-        if (s_tail != s_head) {
-            RingSlot& r = s_ring[s_tail];
-            uint32_t us = micros();
-            uint8_t rec[16];
-            uint32_t secs = us / 1000000, usec = us % 1000000;
-            memcpy(rec, &secs, 4);
-            memcpy(rec+4, &usec, 4);
-            memcpy(rec+8, &r.len, 4);
-            memcpy(rec+12, &r.len, 4);
-            s_pcap.write(rec, 16);
-            s_pcap.write(r.data, r.len);
-            s_stats.captured++;
-            s_tail = (s_tail + 1) % RING_SLOTS;
-        } else {
-            delay(10);
+// Append one frame to the RAM chunk; flushes chunk to SD when full.
+static void bufAppend(const uint8_t* data, uint16_t len) {
+    if (!s_pcap || s_bufUsed + 16 + len > s_bufCap) {
+        if (s_bufUsed) {                                   // flush whole chunk
+            size_t w = s_pcap.write(s_buf, s_bufUsed);
+            if (w != s_bufUsed) {
+                logLine("pcap: SD write failed - capture aborted");
+                s_pcap.close();
+            }
+            s_bufUsed = 0;
         }
-        if ((s_stats.captured % 50) == 0) s_pcap.flush();
+        if (!s_pcap) return;
     }
-    s_pcap.flush();
-    s_writerDone = true;
-    vTaskDelete(nullptr);
+    if (s_bufUsed + 16 + len > s_bufCap) return;   // still won't fit -> drop
+    uint32_t us = micros();
+    uint32_t secs = us / 1000000, usec = us % 1000000;
+    uint8_t rec[16];
+    memcpy(rec, &secs, 4);
+    memcpy(rec+4, &usec, 4);
+    memcpy(rec+8, &len, 4);
+    memcpy(rec+12, &len, 4);
+    memcpy(s_buf + s_bufUsed, rec, 16);
+    memcpy(s_buf + s_bufUsed + 16, data, len);
+    s_bufUsed += 16 + len;
+    s_stats.captured++;
+}
+
+
+// --------------------------------------------------------- EAPOL detection
+static inline bool isEapol(const uint8_t* p) {
+    return (p[30]==0x88 && p[31]==0x8e) || (p[32]==0x88 && p[33]==0x8e);
 }
 
 static bool pcapOpen(const String& name) {
@@ -120,8 +123,7 @@ static bool pcapOpen(const String& name) {
     s_pcap = SD_MMC.open(path, FILE_WRITE);
     if (!s_pcap) return false;
     // libpcap global header: LE magic a1b2c3d4, v2.4, snaplen 65535,
-    // LINKTYPE_IEEE802_11 (105). Frames written WITH their FCS (Wireshark
-    // expects it for this linktype).
+    // LINKTYPE_IEEE802_11 (105). Frames stored WITH their FCS.
     const uint8_t hdr[24] = {
         0xd4,0xc3,0xb2,0xa1, 0x02,0x00,0x04,0x00,
         0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
@@ -129,27 +131,18 @@ static bool pcapOpen(const String& name) {
     };
     s_pcap.write(hdr, 24);
     s_pcap.flush();
-
-    if (!s_ring) s_ring = (RingSlot*)malloc(sizeof(RingSlot) * RING_SLOTS);
-    s_head = s_tail = 0;
-    s_writerDone = false;
-    s_writerRun = true;
-    xTaskCreatePinnedToCore(writerTask, "pcapwr", 6144, nullptr, 0, &s_writerTask, 0);
+    bufInit();
+    s_bufUsed = 0;
     return true;
 }
 
 static void pcapClose() {
-    // Handshaked shutdown: stop accepting, wait for the writer to drain the
-    // ring completely and signal done, THEN close. Never close mid-record.
-    s_writerRun = false;
-    uint32_t t0 = millis();
-    while (!s_writerDone && millis() - t0 < 5000) delay(10);
+    if (s_bufUsed && s_pcap) {
+        size_t w = s_pcap.write(s_buf, s_bufUsed);
+        if (w != s_bufUsed) logLine("pcap: final write short - file may be truncated");
+        s_bufUsed = 0;
+    }
     if (s_pcap) { s_pcap.flush(); s_pcap.close(); }
-}
-
-// --------------------------------------------------------- EAPOL detection
-static inline bool isEapol(const uint8_t* p) {
-    return (p[30]==0x88 && p[31]==0x8e) || (p[32]==0x88 && p[33]==0x8e);
 }
 
 // ------------------------------------------------------------- attack mode
@@ -167,7 +160,7 @@ static void IRAM_ATTR attackSniffCb(void* buf, wifi_promiscuous_pkt_type_t type)
 
     if (isEapol(p)) {
         s_stats.eapol++;
-        ringPush(p, len);            // handshake frames into the pcap
+        bufAppend(p, (uint16_t)(len > 512 ? 512 : len));            // handshake frames into the pcap
         return;
     }
     if (type != WIFI_PKT_DATA) return;
@@ -330,8 +323,9 @@ static void IRAM_ATTR pcapSniffCb(void* buf, wifi_promiscuous_pkt_type_t type) {
     if (type == WIFI_PKT_MISC) return;
     auto* pkt = (wifi_promiscuous_pkt_t*)buf;
     uint32_t len = pkt->rx_ctrl.sig_len;
-    if (len < 1 || len > RING_MAX) return;
-    ringPush(pkt->payload, (uint16_t)len);   // FCS kept (linktype 105)
+    if (len < 1 || len > 1500) return;   // fits 512B slot only if small;
+    if (len > 512) return;               // chunk slots cap at 512B payloads
+    bufAppend(pkt->payload, (uint16_t)len);   // FCS kept (linktype 105)
 }
 
 bool startPcap(const String& name, uint8_t channel, uint32_t seconds) {

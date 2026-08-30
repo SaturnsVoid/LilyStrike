@@ -4,6 +4,7 @@
 #include "config.h"
 #include "crypt.h"
 #include "msc.h"
+#include "wifiattack.h"
 #include <SD_MMC.h>
 
 DeviceConfig cfg;
@@ -87,7 +88,9 @@ void logLine(const String& s) {
     xSemaphoreGive(s_logMtx);
     // Encrypted append to SD - but NEVER while the host owns the raw card
     // (USB_STORAGE/False Thumbdrive): concurrent FS access corrupts both.
-    if (!msc::active() && SD_MMC.cardType() != CARD_NONE) {
+    // No SD I/O while the radio is attacking/capturing (FS + radio don't
+    // mix well during TX bursts) or while MSC owns the card.
+    if (!msc::active() && !wifiattack::busy() && SD_MMC.cardType() != CARD_NONE) {
         String existing;
         decryptFromFile("/logs/system.log.enc", existing);   // empty ok (new/corrupt)
         existing += entry + "\n";
