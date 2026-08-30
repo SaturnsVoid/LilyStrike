@@ -1286,22 +1286,26 @@ bool begin() {
     // WebSocket endpoint first (claims /ws), then handlers register
     // themselves via server.on(...) below, then notFound -> static UI.
     s_wsQueue = xQueueCreate(WS_QUEUE_LEN, sizeof(String*));
+    // SECURITY: /ws streams status + every log line (SSIDs, MACs, IPs,
+    // script names) - recon gold for an unauthenticated peer. The handshake
+    // handler rejects non-authed upgrades with 401 BEFORE the socket is
+    // upgraded (field-tested: connect-event close-after-upgrade was both
+    // racy and leaked the 101 response).
+    ws.handleHandshake([](AsyncWebServerRequest* req) {
+        if (!req || !req->hasHeader("Cookie") || !s_sessionToken.length())
+            return false;
+        const AsyncWebHeader* h = req->getHeader("Cookie");
+        return h && h->value().indexOf("sid=" + s_sessionToken) >= 0;
+    });
     asrv.addHandler(&ws);
     ws.onEvent([](AsyncWebSocket*, AsyncWebSocketClient* client, AwsEventType type,
                  void* arg, uint8_t*, size_t) {
         if (type == WS_EVT_CONNECT) {
-            // SECURITY: /ws streams status + every log line (SSIDs, MACs,
-            // IPs, script names) - recon gold for an unauthenticated peer.
-            // WS_EVT_CONNECT hands us the request in arg; verify the session
-            // cookie NOW and close immediately if absent.
-            auto* req = (AsyncWebServerRequest*)arg;
-            bool ok = req && req->hasHeader("Cookie") && s_sessionToken.length() &&
-                      req->getHeader("Cookie")->value()
-                          .indexOf("sid=" + s_sessionToken) >= 0;
-            if (!ok) { client->close(); return; }
-            // Do NOT build/send the status here: this callback runs in the
-            // async_tcp task and buildStatusJson touches SD stats, racing
-            // logLine's SD writes. Flag it; web::handle() pushes next pass.
+            // Auth was already enforced by the handshake handler below
+            // (401 before upgrade). Do NOT build/send status here: this
+            // callback runs in the async_tcp task and buildStatusJson
+            // touches SD stats, racing logLine's SD writes. Flag it;
+            // web::handle() pushes on the next loop pass.
             s_wsPushOnConnect = true;
         }
     });
