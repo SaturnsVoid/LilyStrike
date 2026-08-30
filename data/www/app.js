@@ -740,55 +740,7 @@ async function doPortScan(){
   $("#psBtn").disabled=false; $("#psBtn").textContent="Scan ports";
 }
 
-/* ============================ WIFI SCAN VIEW ============================ *//* ============================= WIFI SCAN VIEW ============================ */
-async function wifiscanView(){
-  view.innerHTML=`<div class="panel"><h2>${icon("wifi")} WiFi Scanner</h2>
-   <p class="muted">Recon for IF_SSID targeting and CONNECT_AP. Uses AP+STA mode so your management AP stays up. Scan takes ~3 seconds.</p>
-   <button class="primary" onclick="doScan()">Scan now</button>
-   <span class="muted" style="margin-left:10px;font-size:12px" id="scanInfo"></span>
-   <table id="scanTable" style="margin-top:12px"></table></div>
-  <div class="panel"><h2>${icon("wifi")} Live Packet Analyzer</h2>
-   <p class="muted">Channel-hopping live feed: frames by type + APs seen with signal. The device goes OFFLINE while analyzing (single radio) and the AP returns automatically when done (max 2 min, or Stop).</p>
-   <button class="primary" id="anBtn" onclick="toggleAnalyzer()">Start Analyzer</button>
-   <div id="liveStats" style="margin-top:12px">
-     <p class="muted" style="font-size:12px">Shows last session results if the device has analyzed before.</p>
-     <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:10px">
-       <div>Total: <b id="lvTotal">0</b></div>
-       <div>Mgmt: <b id="lvMgmt">0</b></div>
-       <div>Data: <b id="lvData">0</b></div>
-       <div>Ctrl: <b id="lvCtrl">0</b></div>
-       <div>Channel: <b id="lvCh">-</b></div>
-     </div>
-     <table id="liveAps"></table>
-   </div></div>`;
-  // note: anTimer managed globally
-}
-let anTimer=null;
-async function toggleAnalyzer(){
-  const btn=$("#anBtn");
-  if(btn.dataset.on==="1"){
-    await api("/api/analyzer/stop",{method:"POST"});
-    btn.dataset.on="0"; btn.textContent="Start Analyzer";
-    clearInterval(anTimer); anTimer=null;
-    setTimeout(()=>{ $("#liveStats").style.display="none"; }, 2500);
-  } else {
-    if(!(await confirmModal("Start live packet analyzer?\nThe device goes offline until analysis completes.")))return;
-    await api("/api/analyzer/start",{method:"POST"});
-    btn.dataset.on="1"; btn.textContent="Stop Analyzer";
-    $("#liveStats").style.display="block";
-    anTimer=setInterval(async()=>{
-      try{ const s=await api("/api/analyzer/live");
-        $("#lvTotal").textContent=s.total; $("#lvMgmt").textContent=s.mgmt;
-        $("#lvData").textContent=s.data; $("#lvCtrl").textContent=s.ctrl;
-        $("#lvCh").textContent=s.channel;
-        $("#liveAps").innerHTML="<tr><th>AP seen (hopping)</th><th>Signal</th></tr>"+
-          s.aps.map(x=>`<tr><td>${esc(x.ssid)}</td><td>${x.rssi} dBm</td></tr>`).join("")
-          || `<tr><td colspan="2" class="muted">listening...</td></tr>`;
-      }catch(e){}
-    },1000);
-  }
-}
-
+/* ============================= WIFI SCAN VIEW ============================ */
 /* ============================= WIFI SCAN VIEW ============================ */
 async function wifiscanView(){
   view.innerHTML=`<div class="panel"><h2>${icon("wifi")} WiFi Scanner</h2>
@@ -811,6 +763,44 @@ async function wifiscanView(){
      <table id="liveAps"></table>
    </div></div>`;
   doScan();   // auto-scan on open
+  pollLive(); // show last session results if any
+}
+async function pollLive(){
+  try{ const s=await api("/api/analyzer/live");
+    $("#lvTotal").textContent=s.total; $("#lvMgmt").textContent=s.mgmt;
+    $("#lvData").textContent=s.data; $("#lvCtrl").textContent=s.ctrl;
+    $("#lvCh").textContent=s.channel||"-";
+    $("#liveAps").innerHTML="<tr><th>AP (last session)</th><th>Signal</th></tr>"+
+      s.aps.map(x=>`<tr><td>${esc(x.ssid)}</td><td>${x.rssi} dBm</td></tr>`).join("")
+      || `<tr><td colspan="2" class="muted">No APs recorded yet</td></tr>`;
+  }catch(e){}
+}
+/* analyzer toggle + live/last-session display */
+let anTimer=null, anOn=false;
+async function pollLive(){
+  try{ const s=await api("/api/analyzer/live");
+    $("#lvTotal").textContent=s.total; $("#lvMgmt").textContent=s.mgmt;
+    $("#lvData").textContent=s.data; $("#lvCtrl").textContent=s.ctrl;
+    $("#lvCh").textContent=s.channel||"-";
+    $("#liveAps").innerHTML="<tr><th>AP (last session)</th><th>Signal</th></tr>"+
+      s.aps.map(x=>`<tr><td>${esc(x.ssid)}</td><td>${x.rssi} dBm</td></tr>`).join("")
+      || `<tr><td colspan="2" class="muted">No APs recorded yet</td></tr>`;
+  }catch(e){}
+}
+async function toggleAnalyzer(){
+  const btn=$("#anBtn");
+  if(anOn){
+    await api("/api/analyzer/stop",{method:"POST"});
+    anOn=false; btn.textContent="Start Analyzer";
+    clearInterval(anTimer); anTimer=null;
+    setTimeout(pollLive, 2500);   // show final results once AP is back
+  } else {
+    if(!(await confirmModal("Start live packet analyzer?\nThe device goes offline until analysis completes.")))return;
+    await api("/api/analyzer/start",{method:"POST"});
+    anOn=true; btn.textContent="Stop Analyzer";
+    pollLive();
+    anTimer=setInterval(pollLive,1000);
+  }
 }
 async function doScan(){
   $("#scanInfo").textContent="scanning...";
