@@ -1178,6 +1178,11 @@ static void hSettings() {
     if (body.indexOf("\"tempOff\":true") >= 0)       cfg.ifaceTempOff = true;      // takes effect after reboot
     if (body.indexOf("\"tempOff\":false") >= 0)      cfg.ifaceTempOff = false;
     if (body.indexOf("\"permOff\":true") >= 0)       cfg.ifaceDisabledPerm = true; // WARNING: irreversible without reflash
+    // BUGFIX: the Settings page posts mcpEnabled here, but this handler only
+    // processed it in /api/sys - so toggling MCP in Settings did nothing.
+    // mcp::setEnabled() persists to NVS and registers /mcp at runtime.
+    if (body.indexOf("\"mcpEnabled\":true") >= 0)    mcp::setEnabled(true);
+    if (body.indexOf("\"mcpEnabled\":false") >= 0)   mcp::setEnabled(false);
     configSaveDisplay(); configSaveInterfaceFlags(); configSaveAutoOS();
     hw::applyBrightness();   // brightness slider takes effect immediately
 
