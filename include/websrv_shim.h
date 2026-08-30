@@ -29,6 +29,7 @@
 class WebSrvShim {
 public:
     typedef void (*THandlerFunction)();
+    explicit WebSrvShim(uint16_t port) : _srv(port) {}
 
     // ---- registration (routed through the async server by the shim impl) ----
     void on(const char* path, WebRequestMethodComposite method, THandlerFunction fn);
@@ -55,7 +56,11 @@ public:
     void sendFSFile(fs::FS& fs, const String& path, const char* type);
 
     // ---- lifecycle (also shimmed: no handleClient needed) ----
-    void begin();
-    void stop();
+    void begin() { _srv.begin(); }
+    void stop()  { _srv.end();  }
     void handleClient() {}   // async server needs no polling
+    // Escape hatch for the WS endpoint + event wiring in webserver.cpp
+    AsyncWebServer& raw() { return _srv; }
+private:
+    AsyncWebServer _srv;
 };
