@@ -119,10 +119,10 @@ void wsEvent(const String& event, const String& payload) {
     String* j = new String("{\"e\":\"" + event + "\",\"d\":" + payload + "}");
     if (xQueueSend(s_wsQueue, &j, 0) != pdTRUE) delete j;   // full: drop (log flood guard)
 }
+namespace web { String buildStatusJson(); }   // defined below with hStatus
 void wsPushStatus() {
     if (ws.count() == 0) return;
-    extern String buildStatusJson();        // defined below with hStatus
-    wsEvent("status", buildStatusJson());
+    wsEvent("status", web::buildStatusJson());
 }
 
 namespace web {
@@ -208,10 +208,7 @@ static void hLogin() {
 }
 
 // shared status JSON: REST endpoint AND WebSocket push use the same builder
-} // namespace web (buildStatusJson is global: shared with ws push)
-
 String buildStatusJson() {
-    extern int sessionCount();   // diagnostic: live session table occupancy
     String s = "{\"sessions\":" + String(sessionCount()) + ",";
     s += "\"heap\":" + String(ESP.getFreeHeap()) +
          ",\"heapMin\":" + String(ESP.getMinFreeHeap()) +
@@ -240,8 +237,6 @@ String buildStatusJson() {
          "}";
     return s;
 }
-
-namespace web {
 
 static void hStatus() {
     requireAuth(); if (!isAuthed()) return;
