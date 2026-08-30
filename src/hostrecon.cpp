@@ -15,12 +15,15 @@
 #include <lwip/etharp.h>
 #include <esp_netif.h>
 #include <esp_netif_net_stack.h>
+#include <lwip/tcpip.h>
 #include <esp_netif.h>
 #include <esp_netif_net_stack.h>
+#include <lwip/tcpip.h>
 #include <vector>
 #include <algorithm>
 #include <esp_netif.h>
 #include <esp_netif_net_stack.h>
+#include <lwip/tcpip.h>
 
 // Resolve the STA lwIP netif the WifiPhisher way - netif_default can be the
 // AP netif in AP+STA mode, and calling etharp against the wrong netif is
@@ -60,13 +63,23 @@ std::vector<Host> arpSweep() {
     uint32_t base = (mine[0]<<24)|(mine[1]<<16)|(mine[2]<<8);
     uint8_t myLast = mine[3];
 
-    for (int last = 1; last < 255; last++) {
-        if (last == myLast) continue;
-        ip4_addr_t dest;
-        dest.addr = base | last;
-        etharp_request(nif, &dest);
-        if ((last % 16) == 0) delay(2);
-    }
+    // Phase 1: ARP requests ON the tcpip thread via callback_wait.
+    // Direct etharp_request from loopTask resets the device (no core lock
+    // in this lwIP build; linkoutput ran from the wrong thread).
+    struct SweepCtx { struct netif* nif; uint32_t base; uint8_t myLast; };
+    SweepCtx ctx{nif, base, myLast};
+    auto sendReqs = [](void* c) {
+        auto* m = (SweepCtx*)c;
+        for (int last = 1; last < 255; last++) {
+            if (last == m->myLast) continue;
+            ip4_addr_t dest;
+            dest.addr = m->base | last;
+            etharp_request(m->nif, &dest);
+            if ((last % 16) == 0) delay(2);
+        }
+    };
+    tcpip_callback_wait(sendReqs, &ctx);
+
     delay(600);   // let replies land
 
     for (int last = 1; last < 255; last++) {
@@ -77,7 +90,8 @@ std::vector<Host> arpSweep() {
         const ip4_addr_t* ipret = nullptr;
         if (etharp_find_addr(nif, &dest, &eth, &ipret) >= 0 && eth) {
             Host h;
-            h.ip = IPAddress((base>>24)&0xFF, (base>>16)&0xFF, (base>>8)&0xFF, last).toString();
+            IPAddress ip((base>>24)&0xFF, (base>>16)&0xFF, (base>>8)&0xFF, last);
+            h.ip = ip.toString();
             h.mac = macStr(eth->addr);
             out.push_back(h);
         }
