@@ -61,8 +61,38 @@ static WebSrvShim server;                       // same name as before: all 68
                                                 // handlers below compile untouched
 static AsyncWebServer asrv(80);
 static AsyncWebSocket ws("/ws");                // live event push (WifiPhisher-style)
-static String s_sessionToken;
+// MULTI-SESSION: a single global token meant every login (second tab,
+// another device, an operator's curl test) instantly invalidated every other
+// session - users got "logged out" minutes after login for no visible reason.
+// Small token table instead; reboot still clears everything (RAM-only).
+#define MAX_SESSIONS 6
+static String s_tokens[MAX_SESSIONS];
 static bool s_running = false;
+
+static bool sessionActive(const String& tok) {
+    for (auto& t : s_tokens) if (t.length() && t == tok) return true;
+    return false;
+}
+static void sessionAdd(const String& tok) {
+    for (auto& t : s_tokens) if (!t.length()) { t = tok; return; }
+    // table full: evict the oldest (index 0) and shift
+    for (int i = 0; i < MAX_SESSIONS - 1; i++) s_tokens[i] = s_tokens[i + 1];
+    s_tokens[MAX_SESSIONS - 1] = tok;
+}
+static void sessionRemove(const String& tok) {
+    for (auto& t : s_tokens) if (t == tok) { t = ""; return; }
+}
+static String sessionFromCookie() {
+    if (!server.hasHeader("Cookie")) return "";
+    String c = server.header("Cookie");
+    int p = c.indexOf("sid=");
+    if (p < 0) return "";
+    c = c.substring(p + 4);
+    int e = c.indexOf(';');
+    if (e >= 0) c = c.substring(0, e);
+    c.trim();
+    return c;
+}
 
 // ---- shim plumbing: current request + per-request raw body ----
 static AsyncWebServerRequest* s_cur = nullptr;
@@ -214,9 +244,7 @@ namespace web {
 
 // ------------------------------------------------------------------ helpers
 static bool isAuthed() {
-    if (!s_sessionToken.length()) return false;
-    if (!server.hasHeader("Cookie")) return false;
-    return server.header("Cookie").indexOf("sid=" + s_sessionToken) >= 0;
+    return sessionActive(sessionFromCookie());
 }
 
 static void json(int code, const String& body) {
@@ -236,7 +264,7 @@ static void requireAuth() {
     jsonErr(401, "unauthorized");
     if (millis() - s_last401Log < 5000) return;
     s_last401Log = millis();
-    if (!s_sessionToken.length())
+    if (!sessionFromCookie().length())
         logLine("web: 401 " + server.uri() + " (no session - rebooted?)");
     else if (!server.hasHeader("Cookie"))
         logLine("web: 401 " + server.uri() + " (no Cookie header)");
@@ -282,13 +310,14 @@ static void hLogin() {
     s_loginFails = 0;   // success clears the ladder
     // 24 hex chars from hardware RNG
     uint8_t rnd[12]; esp_fill_random(rnd, sizeof(rnd));
-    s_sessionToken = "";
-    for (uint8_t b : rnd) { char t[3]; snprintf(t, 3, "%02x", b); s_sessionToken += t; }
+    String tok;
+    for (uint8_t b : rnd) { char t[3]; snprintf(t, 3, "%02x", b); tok += t; }
+    sessionAdd(tok);
     // SameSite=Strict: all state-changing endpoints are cookie-gated, so a
     // cross-site form/fetch from a malicious webpage the operator visits
     // must NOT ride this cookie (CSRF -> selfdestruct/factory-reset).
     server.sendHeader("Set-Cookie",
-        "sid=" + s_sessionToken + "; Path=/; HttpOnly; SameSite=Strict");
+        "sid=" + tok + "; Path=/; HttpOnly; SameSite=Strict");
     logLine("web: login ok");
     json(200, "{\"ok\":true}");
 }
@@ -334,8 +363,8 @@ static void hStatus() {
 }
 
 static void hLogout() {
-    // Logout = drop the RAM session; cookie becomes worthless immediately.
-    s_sessionToken = "";
+    // Logout = drop THIS session only (other tabs/devices stay logged in).
+    sessionRemove(sessionFromCookie());
     json(200, "{\"ok\":true}");
 }
 static void hLogGet() {
@@ -1315,10 +1344,14 @@ bool begin() {
     // upgraded (field-tested: connect-event close-after-upgrade was both
     // racy and leaked the 101 response).
     ws.handleHandshake([](AsyncWebServerRequest* req) {
-        if (!req || !req->hasHeader("Cookie") || !s_sessionToken.length())
-            return false;
+        if (!req || !req->hasHeader("Cookie")) return false;
         const AsyncWebHeader* h = req->getHeader("Cookie");
-        return h && h->value().indexOf("sid=" + s_sessionToken) >= 0;
+        if (!h) return false;
+        String c = h->value(); int p = c.indexOf("sid=");
+        if (p < 0) return false;
+        c = c.substring(p + 4); int e = c.indexOf(';');
+        if (e >= 0) c = c.substring(0, e); c.trim();
+        return sessionActive(c);
     });
     asrv.addHandler(&ws);
     ws.onEvent([](AsyncWebSocket*, AsyncWebSocketClient* client, AwsEventType type,
