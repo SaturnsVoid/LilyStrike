@@ -103,8 +103,10 @@ static void IRAM_ATTR eapolSniffCb(void* buf, wifi_promiscuous_pkt_type_t type) 
     if (!eapol) return;
     s_eapolSeen++;
     s_stats.eapol++;
-    if (len > 4) len -= 4;             // strip FCS - sig_len includes it;
-    pcapWrite(p, len);                 // keeping it corrupts the pcap record
+    // KEEP the FCS: sig_len includes the 4-byte checksum and Wireshark
+    // expects it for linktype 105 (stripping breaks the tag-length chain
+    // -> "Malformed Packet"). Marauder's known-good pcaps do the same.
+    pcapWrite(p, len);
 }
 
 // Full-traffic PCAP capture callback (PcapCapture command)
@@ -112,8 +114,8 @@ static void IRAM_ATTR pcapSniffCb(void* buf, wifi_promiscuous_pkt_type_t type) {
     if (type == WIFI_PKT_MISC) return;
     auto* pkt = (wifi_promiscuous_pkt_t*)buf;
     uint32_t len = pkt->rx_ctrl.sig_len;
-    if (len < 5 || len > 2500) return;
-    len -= 4;                          // strip FCS (Wireshark rejects frames w/ it)
+    if (len < 1 || len > 2500) return;
+    // FCS stays: see eapolSniffCb note - Wireshark expects it (linktype 105).
     pcapWrite(pkt->payload, len);
 }
 
