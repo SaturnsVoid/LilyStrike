@@ -166,6 +166,9 @@ void WebSrvShim::sendHeader(const String& name, const String& value, bool) {
 void WebSrvShim::send(int code, const char* ctype, const String& content) {
     if (!s_cur) return;
     AsyncWebServerResponse* res = s_cur->beginResponse(code, ctype, content);
+    // belt+braces: API responses must never be cached by the browser
+    // (heuristically cached stale /api/* responses caused field confusion)
+    res->addHeader("Cache-Control", "no-store");
     int start = 0;
     while (start < (int)s_qHeaders.length()) {
         int nl = s_qHeaders.indexOf('\n', start);
@@ -1277,6 +1280,13 @@ static void hIndex() {
     if (!isAuthed()) { server.sendHeader("Location", "/login.html"); server.send(302); return; }
     serveWWW("/index.html");
 }
+static void hLoginHtml() {
+    // Nuke stale browser cache entries for this origin (pre-migration pages
+    // heuristically cached without no-cache headers kept resurrecting old
+    // UI versions client-side). Clear-Site-Data wipes on receipt - Chrome/FF.
+    server.sendHeader("Clear-Site-Data", "\"cache\"");
+    serveWWW("/login.html");
+}
 static void hStatic() {
     String p = server.uri();
     if (p != "/login.html" && p != "/app.js" && p != "/style.css") { server.send(404); return; }
@@ -1511,6 +1521,7 @@ void setupRoutes() {
     server.on("/api/dev/screen", HTTP_GET, hDevScreen); // hardware test
     server.on("/api/settings", HTTP_POST, hSettings);
     server.on("/api/settings", HTTP_GET, hSettingsGet);   // form loads saved values
+    server.on("/login.html", HTTP_GET, hLoginHtml);
     server.on("/", HTTP_GET, hIndex);
     server.on("/index.html", HTTP_GET, hIndex);
     server.onNotFound(hStatic);
