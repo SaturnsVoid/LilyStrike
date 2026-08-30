@@ -103,7 +103,8 @@ static void IRAM_ATTR eapolSniffCb(void* buf, wifi_promiscuous_pkt_type_t type) 
     if (!eapol) return;
     s_eapolSeen++;
     s_stats.eapol++;
-    pcapWrite(p, len);                 // only handshake frames go in the file
+    if (len > 4) len -= 4;             // strip FCS - sig_len includes it;
+    pcapWrite(p, len);                 // keeping it corrupts the pcap record
 }
 
 // Full-traffic PCAP capture callback (PcapCapture command)
@@ -111,7 +112,8 @@ static void IRAM_ATTR pcapSniffCb(void* buf, wifi_promiscuous_pkt_type_t type) {
     if (type == WIFI_PKT_MISC) return;
     auto* pkt = (wifi_promiscuous_pkt_t*)buf;
     uint32_t len = pkt->rx_ctrl.sig_len;
-    if (len < 1 || len > 2500) return;
+    if (len < 5 || len > 2500) return;
+    len -= 4;                          // strip FCS (Wireshark rejects frames w/ it)
     pcapWrite(pkt->payload, len);
 }
 
@@ -186,9 +188,16 @@ static void attackTask(void* pv) {
     pcapName.replace(" ", "_");
     bool havePcap = pcapOpen(pcapName);
 
-    // Everything else goes quiet: our AP would be on a conflicting channel.
+    // BUGFIX: keep the softAP interface UP and PINNED to the target channel.
+    // softAPdisconnect() tore down the radio context that esp_wifi_80211_tx
+    // transmits through, and the stack kept drifting off-channel - deauths
+    // were "sent" but never landed. Applejuice pins the channel via softAP();
+    // Marauder uses WIFI_MODE_NULL + promiscuous. We pin with softAP (also
+    // gives the target's clients a captive-looking network to hit).
     WiFi.mode(WIFI_AP_STA);
-    WiFi.softAPdisconnect(true);
+    // Move OUR AP to the target's channel first (pins the radio), then
+    // stop broadcasting our SSID but keep the interface active.
+    WiFi.softAP(cfg.wifiSSID, cfg.wifiPass, ch);
     delay(100);
     esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE);
     esp_wifi_set_promiscuous(true);
