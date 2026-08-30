@@ -1,28 +1,46 @@
 // ============================================================================
-// webserver.cpp - WiFi AP + auth + REST API for the web UI
+// webserver.cpp - WiFi AP + auth + REST API + WebSocket events for the web UI
 // ----------------------------------------------------------------------------
-// Auth model: POST /api/login checks cfg.webUser/webPass, then issues a random
-// session token kept ONLY in RAM (reboot = logout everywhere). The token rides
-// in the "sid" cookie; every /api/* route (except login) requires it.
+// ARCHITECTURE (post async-migration):
+//   - The HTTP engine is ESPAsyncWebServer, wrapped by WebSrvShim
+//     (include/websrv_shim.h, src/websrv_shim.cpp) so handlers keep the old
+//     sync WebServer API surface (server.arg/send/header/...).
+//   - The shim object OWNS the AsyncWebServer; the WebSocket endpoint (/ws)
+//     is attached here and broadcasts {"e":event,"d":payload} frames from a
+//     FreeRTOS queue (thread-safe: never call ws.textAll from other tasks).
+//   - Sessions: 6-slot RAM token table (multi-tab/multi-device); a reboot
+//     clears all sessions by design.
+//   - SD card access is serialized with sdLock()/sdUnlock() (crypt.h) because
+//     handlers (async_tcp task) race the loop task (logLine, stats).
 //
-// API surface (all JSON unless noted):
-//   POST /api/login {user,pass}          -> {ok}
-//   GET  /api/status                     -> system stats + script state
-//   GET  /api/log                        -> debug log text
-//   POST /api/reboot | /api/reset | /api/format-sd
-//   GET  /api/scripts                    -> [{name,size}] (.ds on SD)
-//   GET  /api/script?name=x              -> decrypted text
-//   POST /api/script {name,text}         -> save encrypted
-//   DEL  /api/script?name=x              -> delete
-//   POST /api/run    {name?|text?,autostart?} -> run now or set autostart order
-//   GET  /api/autostart                  -> [names in order]
-//   POST /api/stop
-//   GET  /api/files?path=/x              -> dir listing
-//   GET  /api/file?path=/x               -> raw content (text)
-//   POST /api/file {path,content}        -> write
-//   POST /api/upload?path=/x             -> binary body
-//   DEL  /api/file?path=/x
-// Settings: POST /api/settings {wifi|login|enc|display|interface groups}
+// FILE LAYOUT:
+//   1. includes + globals (shim, WS, session table)
+//   2. WebSocket event bus (wsEvent/wsPushStatus - global, thread-safe)
+//   3. namespace web: auth helpers, per-feature handlers, buildStatusJson,
+//      route table (setupRoutes), lifecycle (begin/handle/suspend/resume)
+//
+// API SURFACE (all JSON unless noted; every /api/* requires the sid cookie
+// except /api/login; /mcp requires X-MCP-Token and is registered by mcp.cpp):
+//   POST /api/login {user,pass}               POST /api/logout
+//   GET  /api/status (also pushed over /ws)   GET  /api/log
+//   POST /api/reboot | /api/reset | /api/format-sd | /api/selfdestruct
+//   GET  /api/scripts                         GET/POST/DELETE /api/script?name=
+//   POST /api/run {name?|text?}               POST /api/stop
+//   GET  /api/autostart                       POST /api/autostart {names:[]}
+//   GET  /api/files?path=/x                   GET/POST/DELETE /api/file?path=
+//   POST /api/filebin?path=/x {b64}           POST /api/mkdir {path}
+//   GET/POST /api/scriptmeta                  GET  /api/layouts
+//   POST/GET /api/evilap/start|stop|status    GET  /api/evilap/creds
+//   GET/POST /api/evilap/html                 GET/POST /api/msc
+//   GET/POST /api/sys                         GET/POST /api/settings
+//   GET/POST /api/eula                        GET/POST /api/mcptoken
+//   GET/POST /api/spoof                       POST /api/deauth/start|stop
+//   GET  /api/deauth/status                   POST /api/pcap/start
+//   POST /api/karma/start|stop|spawn          GET  /api/karma/probes
+//   GET/POST/DELETE /api/sched                POST /api/sched/clear
+//   POST /api/analyzer/start|stop             GET  /api/analyzer/live
+//   GET  /api/wifiscan                        POST /api/recon/arp|ports
+//   POST /api/hid/key|mods|mouse              GET  /api/dev/led|screen
 // ============================================================================
 #include "webserver.h"
 #include "config.h"
@@ -276,7 +294,6 @@ static void hFormatSD() {
 }
 
 // ---- scripts ---------------------------------------------------------------
-// ---- script metadata sidecar (description + keyboard layout) ----
 static String metaPath(const String& name) { return "/scripts/" + name + ".meta"; }
 static String readMeta(const String& name) {
     String j;
