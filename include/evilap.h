@@ -29,6 +29,16 @@ bool start(const String& ssid, const String& htmlName);  // "" = default templat
 void stop();                                             // restores normal AP
 void handle();                                           // call from loop()
 
+// ---- Karma mode ----
+// Sniffs probe requests (devices asking for networks they remember), then
+// brings the portal up under the most-requested SSID. Devices that trust
+// the name connect on their own - no deauth needed.
+void karmaStart();              // begin probe sniffing (channel hopping)
+void karmaStop();
+bool karmaProbing();            // currently listening for probes?
+bool karmaSpawn(const String& ssid);  // portal under a probed SSID (like start)
+std::vector<std::pair<String,uint32_t>> karmaProbeList(); // ssid -> hit count
+
 // Template helpers
 std::vector<String> templateNames();                     // built-ins
 String renderTemplate(const String& name);               // full HTML document

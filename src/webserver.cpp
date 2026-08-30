@@ -559,6 +559,33 @@ static void hEulaSet() {
     json(200, "{\"ok\":true}");
 }
 
+// ---- Karma attack ----
+static void hKarmaStart() {
+    requireAuth(); if (!isAuthed()) return;
+    if (evilap::running()) return jsonErr(409, "portal already running");
+    evilap::karmaStart();
+    json(200, "{\"ok\":true,\"note\":\"sniffing probe requests\"}");
+}
+static void hKarmaProbes() {
+    requireAuth(); if (!isAuthed()) return;
+    auto list = evilap::karmaProbeList();
+    String out = "[";
+    for (size_t i = 0; i < list.size(); i++) {
+        if (i) out += ",";
+        String ssid = list[i].first; ssid.replace("\"","'");
+        out += "{\"ssid\":\"" + ssid + "\",\"count\":" + String(list[i].second) + "}";
+    }
+    json(200, out + "]");
+}
+static void hKarmaSpawn() {
+    requireAuth(); if (!isAuthed()) return;
+    String body = server.arg("plain"), ssid;
+    if (!extractJsonStr(body, "ssid", ssid) || !ssid.length())
+        return jsonErr(400, "ssid required");
+    if (!evilap::karmaSpawn(ssid)) return jsonErr(500, "cannot spawn portal");
+    json(200, "{\"ok\":true,\"warn\":\"device offline while portal runs\"}");
+}
+
 // ---- WiFi attack (deauth + pcap, Step 3b) --------------------------------------
 // During an attack the device AP goes DOWN (channel conflict) - the UI warns.
 // Attacks are "attempt once": bounded time, then normal operation restores.
@@ -1046,7 +1073,10 @@ bool begin() {
     server.on("/api/deauth/stop", HTTP_POST, hDeauthStop);
     server.on("/api/deauth/status", HTTP_GET, hDeauthStatus);
     server.on("/api/pcap/start", HTTP_POST, hPcapStart);
-    server.on("/api/pcap/list", HTTP_GET, hPcapList);
+    server.on("/api/karma/start", HTTP_POST, hKarmaStart);
+    server.on("/api/karma/probes", HTTP_GET, hKarmaProbes);
+    server.on("/api/karma/spawn", HTTP_POST, hKarmaSpawn);
+    server.on("/api/sched", HTTP_GET, hSchedGet);
     server.on("/api/sched", HTTP_GET, hSchedGet);
     server.on("/api/sched", HTTP_POST, hSchedAdd);
     server.on("/api/sched", HTTP_DELETE, hSchedDelete);

