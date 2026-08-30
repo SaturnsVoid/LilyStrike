@@ -272,6 +272,10 @@ static String sysSet(const String& body) {
 
 // ---------------------------------------------------------------- handler
 static void handleMcp() {
+    if (!s_enabled) {
+        jsonError(403, -32002, "MCP is disabled in device settings");
+        return;
+    }
     WebSrvShim* srv = webServerPtr();
     // auth: header OR ?token= query param (dumb clients can't set headers)
     bool authed = false;
@@ -349,8 +353,12 @@ static void registerRoute() {
 }
 void begin() {
     load();
-    if (!s_enabled) { logLine("mcp: disabled by setting"); return; }
+    // ALWAYS register the route: the catch-all "/*" handler is added at the
+    // end of setupRoutes, so any handler registered later (runtime enable)
+    // is shadowed by it and /mcp 404s. Gate on s_enabled per-request instead
+    // (see handleMcp) - runtime enable/disable then just works.
     registerRoute();
+    if (!s_enabled) logLine("mcp: disabled by setting");
 }
 
 // ---- async script runner mirroring webserver.cpp's pattern ----
