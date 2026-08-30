@@ -198,7 +198,6 @@ struct AutostartEntry { char name[64]; };   // ordered list of scripts to run on
 // Fix: events go through a FreeRTOS queue, drained to textAll by the loop
 // task in web::handle() - the same task that owns the async server.
 static QueueHandle_t s_wsQueue = nullptr;
-static volatile bool s_wsPushOnConnect = false;
 #define WS_QUEUE_LEN 24
 void wsEvent(const String& event, const String& payload) {
     if (!s_wsQueue) return;                 // web stack down: drop silently
