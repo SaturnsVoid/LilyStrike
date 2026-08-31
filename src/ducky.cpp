@@ -380,6 +380,8 @@ RunResult run(const String& scriptText, const String& name) {
 
     g_vars.clear();
     int defaultDelay = 0;
+    int gotoBudget = 0;      // GOTO jumps per script (loop guard)
+    static int subRunDepth = 0;   // RUN_SCRIPT nesting guard
     String lastCmdLine;
     // ON_ERROR policy: CONTINUE (default), STOP, or JUMP <label>
     String onError = "CONTINUE";
@@ -872,6 +874,53 @@ RunResult run(const String& scriptText, const String& name) {
         if (!executed) res.linesRun--;   // don't count failures as executed lines
         // LABEL lines are no-ops (targets for ON_ERROR JUMP)
         if (cmd.equalsIgnoreCase("LABEL")) { /* no-op */ }
+
+        // GOTO <label> - unconditional jump with a budget so a bad loop
+        // can't wedge the runner task forever.
+        if (cmd.equalsIgnoreCase("GOTO")) {
+            if (++gotoBudget > 256) {
+                res.error += "L" + String(L.srcLine) + ":GOTO budget exceeded ";
+                res.ok = false;
+                break;
+            }
+            bool found = false;
+            for (int j = 0; j < (int)lines.size(); j++) {
+                if (lines[j].cmd.equalsIgnoreCase("LABEL") &&
+                    lines[j].args.equalsIgnoreCase(args)) { i = j; found = true; break; }
+            }
+            if (!found) {
+                res.error += "L" + String(L.srcLine) + ":label '" + args + "' not found ";
+                if (onError == "STOP") { res.ok = false; break; }
+            }
+        }
+
+        // RUN_SCRIPT <name> - execute another saved script inline (max depth 3).
+        // The sub-run keeps its own state; ours resumes when it returns.
+        if (cmd.equalsIgnoreCase("RUN_SCRIPT")) {
+            String sub = args; sub.trim();
+            sub.replace("/", ""); sub.replace("..", "");   // same as web sanitizeName
+            if (sub.isEmpty()) sub = "untitled.ds";
+            String text;
+            if (subRunDepth >= 3) {
+                res.error += "L" + String(L.srcLine) + ":RUN_SCRIPT too deep ";
+                executed = false;
+            } else if (sub.length() && decryptFromFile(("/scripts/" + sub).c_str(), text) && text.length()) {
+                subRunDepth++;
+                RunResult r2 = run(text, sub);
+                subRunDepth--;
+                g_running = true;
+                s_state = "RUNNING";
+                g_state.scriptState = ScriptState::RUNNING;
+                s_wasStopped = false;
+                g_stopRequested = false;
+                logLine("script " + name + " resumed after " + sub +
+                        (r2.ok ? "" : " (sub error: " + r2.error + ")"));
+                res.linesRun++;
+            } else {
+                res.error += "L" + String(L.srcLine) + ":RUN_SCRIPT '" + sub + "' not found ";
+                executed = false;
+            }
+        }
         i++;
     }
 
