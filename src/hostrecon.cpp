@@ -56,15 +56,23 @@ static void sweepTask(void*) {
             IPAddress mine = WiFi.localIP();
             // BUGFIX: lwIP addresses are NETWORK byte order. The old host-order
             // construction sent every ARP to a byte-swapped IP (e.g. 5.12.168.192)
-            // so the sweep always found nothing. IPAddress's uint32_t conversion is
-            // already in lwIP's native order.
+            // so the sweep always found nothing. IPAddress's uint32_t conversion
+            // is already in lwIP's native order.
             uint32_t base = (uint32_t)mine & 0xFFFFFF00UL;
             uint8_t myLast = mine[3];
 
-            struct SweepCtx { struct netif* nif; uint32_t base; uint8_t myLast; };
-            SweepCtx ctx{nif, base, myLast};
-            auto sendReqs = [](void* c) {
-                auto* m = (SweepCtx*)c;
+            // ALL etharp access runs on the tcpip thread (this lwIP build has
+            // no core locking - direct calls from a foreign task are unsafe).
+            struct SweepCtx {
+                struct netif* nif; uint32_t base; uint8_t myLast;
+                struct { uint32_t ip; uint8_t mac[6]; } out[253];
+                int n;
+            };
+            static SweepCtx ctx;   // static: no heap on the tcpip thread
+            ctx = SweepCtx{ nif, base, myLast, {}, 0 };
+
+            auto sendReqs = [](void* p) {
+                auto* m = (SweepCtx*)p;
                 for (int last = 1; last < 255; last++) {
                     if (last == m->myLast) continue;
                     ip4_addr_t dest;
@@ -74,25 +82,34 @@ static void sweepTask(void*) {
                 }
             };
             tcpip_callback_wait(sendReqs, &ctx);
+            logLine("arp-sweep: requests sent");
+            delay(1500);   // let replies land
 
-            delay(1500);  // let replies land (254 requests on a busy WiFi subnet)
-
-            for (int last = 1; last < 255; last++) {
-                if (last == myLast) continue;
-                ip4_addr_t dest;
-                dest.addr = base | last;
-                struct eth_addr* eth = nullptr;
-                const ip4_addr_t* ipret = nullptr;
-                if (etharp_find_addr(nif, &dest, &eth, &ipret) >= 0 && eth) {
-                    Host h;
-                    IPAddress ip((base>>24)&0xFF, (base>>16)&0xFF, (base>>8)&0xFF, last);
-                    h.ip = ip.toString();
-                    h.mac = macStr(eth->addr);
-                    out.push_back(h);
+            auto collect = [](void* p) {
+                auto* m = (SweepCtx*)p;
+                for (int last = 1; last < 255; last++) {
+                    if (last == m->myLast) continue;
+                    ip4_addr_t dest;
+                    dest.addr = m->base | last;
+                    struct eth_addr* eth = nullptr;
+                    const ip4_addr_t* ipret = nullptr;
+                    if (etharp_find_addr(m->nif, &dest, &eth, &ipret) >= 0 && eth) {
+                        m->out[m->n].ip = dest.addr;
+                        memcpy(m->out[m->n].mac, eth->addr, 6);
+                        m->n++;
+                    }
+                    if ((last % 32) == 0) delay(1);
                 }
-                s_progress = (uint8_t)(last * 100 / 254);
-                if ((last % 32) == 0) delay(1);
+            };
+            tcpip_callback_wait(collect, &ctx);
+
+            for (int i = 0; i < ctx.n; i++) {
+                Host h;
+                h.ip = IPAddress(ctx.out[i].ip).toString();
+                h.mac = macStr(ctx.out[i].mac);
+                out.push_back(h);
             }
+            logLine("arp-sweep: found " + String(ctx.n) + " live hosts");
         }
     }
     resLock(); s_result = out; resUnlock();
@@ -103,6 +120,7 @@ static void sweepTask(void*) {
 
 bool arpStart() {
     if (s_scanning || WiFi.status() != WL_CONNECTED) return false;
+    WiFi.setSleep(WIFI_PS_NONE);   // power save drops broadcast replies
     s_scanning = true;
     s_progress = 0;
     resLock(); s_result.clear(); resUnlock();
