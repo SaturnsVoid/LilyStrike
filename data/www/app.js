@@ -1194,6 +1194,14 @@ function settingsView(){
     <label>Token (auto-generated; override if you like)<input id="tunnelToken" onchange="saveTunnel()"></label>
     <label><input type="checkbox" id="tunnelEnabled" style="width:auto" onchange="saveTunnel()"> Enable tunnel when on an internet network</label>
   </div>
+  <div class="setcard"><h3>${icon("folder")} Config Backup</h3>
+    <p class="desc">Encrypted snapshot of every setting (WiFi, login, encryption password, MCP, tunnel, power, MAC/USB spoof) to <b class="mono">/backup.enc</b> on the card. Restore requires the same encryption password. Kill switches are never restored.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="small primary" onclick="cfgExport()">Export backup</button>
+      <button class="small danger" onclick="cfgImport()">Restore backup</button>
+    </div>
+    <p class="muted" style="font-size:12px;margin-top:6px">Restore applies the snapshot and reboots the device.</p>
+  </div>
   <div class="setcard"><h3>${icon("bolt")} MCP / AI Mode</h3>
     <p class="desc">Lets LLM agents (Claude Desktop, MCP clients) drive the device via the MCP protocol at <b class="mono">/mcp</b>. Safe tools only — destructive actions stay human-only.</p>
     <label><input type="checkbox" id="mcpEnabled" style="width:auto" onchange="saveMcp()"> Enable MCP server at boot</label>
@@ -1274,6 +1282,15 @@ async function saveMac(){
   _lastSys.macMode = mode; _lastSys.macCustom = custom;
   await jpost("/api/sys",{macMode:mode, macCustom:custom});
   toast("MAC saved — applies at next boot");
+}
+async function cfgExport(){
+  const r=await jpost("/api/config/export",{});
+  r.ok ? toast("Backup written to /backup.enc") : toast(r.error||"export failed","err");
+}
+async function cfgImport(){
+  if(!(await confirmModal("Restore config from /backup.enc?\nCurrent settings are overwritten and the device reboots.")))return;
+  const r=await jpost("/api/config/import",{});
+  if(r.ok) toast("Restored - rebooting..."); else toast(r.error||"restore failed","err");
 }
 async function saveTunnel(){
   const payload = {tunnelUrl:$("#tunnelUrl").value, tunnelToken:$("#tunnelToken").value,

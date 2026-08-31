@@ -825,6 +825,97 @@ static void hPcapList() {
     json(200, out + "]");
 }
 
+
+// ---- config backup / restore -------------------------------------------------
+// Encrypted snapshot of every operator setting to /backup.enc on the SD card.
+// Requires the encryption password (the blob holds web/AP/MCP secrets).
+// Restores everything except the kill switches, then reboots.
+static String jesc(String v) { v.replace("\\", "\\\\"); v.replace("\"", "\\\""); return v; }
+
+static void hConfigExport() {
+    requireAuth(); if (!isAuthed()) return;
+    if (!strlen(cfg.encPassword))
+        return jsonErr(400, "set an encryption password first (Settings > Encryption)");
+    Preferences t; t.begin("tunnel", true);
+    String tok = t.getString("token", "");
+    t.end();
+    String j = "{";
+    j += "\"wifiSSID\":\"" + jesc(cfg.wifiSSID) + "\",";
+    j += "\"wifiPass\":\"" + jesc(cfg.wifiPass) + "\",";
+    j += "\"wifiHidden\":" + String(cfg.wifiHidden ? "true" : "false") + ",";
+    j += "\"webUser\":\"" + jesc(cfg.webUser) + "\",";
+    j += "\"webPass\":\"" + jesc(cfg.webPass) + "\",";
+    j += "\"hostname\":\"" + jesc(cfg.hostname) + "\",";
+    j += "\"encPassword\":\"" + jesc(cfg.encPassword) + "\",";
+    j += "\"screenOnBoot\":" + String(cfg.screenOnBoot ? "true" : "false") + ",";
+    j += "\"ledOnBoot\":" + String(cfg.ledOnBoot ? "true" : "false") + ",";
+    j += "\"brightness\":" + String(cfg.screenBrightness) + ",";
+    j += "\"autoDetectOS\":" + String(cfg.autoDetectOS ? "true" : "false") + ",";
+    j += "\"mcpEnabled\":" + String(mcp::enabled() ? "true" : "false") + ",";
+    j += "\"mcpToken\":\"" + jesc(mcp::token()) + "\",";
+    j += "\"powerMode\":" + String((int)power::mode()) + ",";
+    { Preferences sp; sp.begin("spoof", true);
+      j += "\"macMode\":" + String(sp.getUChar("mode", 0)) + ",";
+      j += "\"macCustom\":\"" + jesc(sp.getString("custom", "")) + "\",";
+      j += "\"usbVendor\":\"" + jesc(sp.getString("vendor", "")) + "\",";
+      j += "\"usbProduct\":\"" + jesc(sp.getString("product", "")) + "\",";
+      j += "\"usbSerial\":\"" + jesc(sp.getString("serial", "")) + "\",";
+      sp.end(); }
+    j += "\"tunnelUrl\":\"" + jesc(t.getString("url", "")) + "\",";
+    j += "\"tunnelToken\":\"" + jesc(tok) + "\"";
+    j += "}";
+    if (!encryptToFile("/backup.enc", j)) return jsonErr(500, "write failed (SD?)");
+    logLine("web: config backup exported");
+    json(200, "{\"ok\":true,\"file\":\"/backup.enc\"}");
+}
+
+static void hConfigImport() {
+    requireAuth(); if (!isAuthed()) return;
+    String j;
+    if (!decryptFromFile("/backup.enc", j) || j.length() < 10)
+        return jsonErr(404, "no valid /backup.enc (wrong encryption password?)");
+    String v;
+    // never restore the kill switches from a backup - safety
+    cfg.ifaceTempOff = false; cfg.ifaceDisabledPerm = false;
+    if (extractJsonStr(j, "wifiSSID", v) && v.length()) strlcpy(cfg.wifiSSID, v.c_str(), sizeof(cfg.wifiSSID));
+    if (extractJsonStr(j, "wifiPass", v)) strlcpy(cfg.wifiPass, v.c_str(), sizeof(cfg.wifiPass));
+    if (extractJsonStr(j, "webUser", v) && v.length()) strlcpy(cfg.webUser, v.c_str(), sizeof(cfg.webUser));
+    if (extractJsonStr(j, "webPass", v) && v.length()) strlcpy(cfg.webPass, v.c_str(), sizeof(cfg.webPass));
+    if (extractJsonStr(j, "hostname", v) && v.length()) strlcpy(cfg.hostname, v.c_str(), sizeof(cfg.hostname));
+    if (extractJsonStr(j, "encPassword", v)) strlcpy(cfg.encPassword, v.c_str(), sizeof(cfg.encPassword));
+    if (extractJsonStr(j, "mcpToken", v) && v.length()) mcp::setToken(v);
+    { Preferences sp; sp.begin("spoof", false);
+      if (extractJsonStr(j, "macCustom", v)) sp.putString("custom", v);
+      if (extractJsonNum(j, "macMode", -1) >= 0) sp.putUChar("mode", (uint8_t)constrain((int)extractJsonNum(j, "macMode", 0), 0, 2));
+      if (extractJsonStr(j, "usbVendor", v)) sp.putString("vendor", v);
+      if (extractJsonStr(j, "usbProduct", v)) sp.putString("product", v);
+      if (extractJsonStr(j, "usbSerial", v)) sp.putString("serial", v);
+      sp.end(); }
+    if (extractJsonNum(j, "powerMode", -1) >= 0) power::set((power::Mode)constrain((int)extractJsonNum(j, "powerMode", 1), 0, 2));
+    if (extractJsonNum(j, "screenBrightness", -1) >= 0) cfg.screenBrightness = constrain((int)extractJsonNum(j, "screenBrightness", 128), 0, 255);
+    if (j.indexOf("\"wifiHidden\":true") >= 0) cfg.wifiHidden = true;
+    if (j.indexOf("\"wifiHidden\":false") >= 0) cfg.wifiHidden = false;
+    if (j.indexOf("\"screenOnBoot\":true") >= 0) cfg.screenOnBoot = true;
+    if (j.indexOf("\"screenOnBoot\":false") >= 0) cfg.screenOnBoot = false;
+    if (j.indexOf("\"ledOnBoot\":true") >= 0) cfg.ledOnBoot = true;
+    if (j.indexOf("\"ledOnBoot\":false") >= 0) cfg.ledOnBoot = false;
+    if (j.indexOf("\"autoDetectOS\":true") >= 0) cfg.autoDetectOS = true;
+    if (j.indexOf("\"autoDetectOS\":false") >= 0) cfg.autoDetectOS = false;
+    bool mcpOn = j.indexOf("\"mcpEnabled\":true") >= 0;
+    configSaveWiFi(); configSaveLogin(); configSaveEncryption();
+    configSaveDisplay(); configSaveAutoOS();
+    Preferences t; t.begin("tunnel", false);
+    if (extractJsonStr(j, "tunnelUrl", v)) t.putString("url", v);
+    if (extractJsonStr(j, "tunnelToken", v)) t.putString("token", v);
+    t.end();
+    mcp::setEnabled(mcpOn);
+    tunnel::loadAndMaybeStart();
+    logLine("web: config backup restored - rebooting");
+    json(200, "{\"ok\":true,\"reboot\":true}");
+    delay(800);
+    ESP.restart();
+}
+
 // ---- Script scheduler (cron-lite) ---------------------------------------------
 static void hSchedGet() {
     requireAuth(); if (!isAuthed()) return;
@@ -1378,6 +1469,8 @@ void setupRoutes() {
     });
     server.on("/api/karma/probes", HTTP_GET, hKarmaProbes);
     server.on("/api/karma/spawn", HTTP_POST, hKarmaSpawn);
+    server.on("/api/config/export", HTTP_POST, hConfigExport);
+    server.on("/api/config/import", HTTP_POST, hConfigImport);
     server.on("/api/sched", HTTP_GET, hSchedGet);
     server.on("/api/sched", HTTP_POST, hSchedAdd);
     server.on("/api/sched", HTTP_DELETE, hSchedDelete);
