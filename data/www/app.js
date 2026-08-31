@@ -978,6 +978,9 @@ const REF_GROUPS=[
  ["REM / REM_BLOCK","Comments. REM skips one line; REM_BLOCK_START ... REM_BLOCK_END skips a whole block.","REM this line is ignored\nREM_BLOCK_START\nNothing here runs\nREM_BLOCK_END"],
 ]],
 ["Logic & Conditions",[
+ ["RUN_SCRIPT <name>","Execute another saved script inline (max depth 3). The outer script pauses, the sub-script runs to completion, then this script resumes. Great for modular payloads and shared cleanup routines.","RUN_SCRIPT hello_notepad.ds\nDELAY 1000\nRUN_SCRIPT light_show.ds\nSCREEN_TEXT Chain done"],
+ ["GOTO <label>","Unconditional jump to a LABEL - forward or backward. A jump budget of 256 per run guards against infinite loops, so backward loops end with a budget-exceeded error: prefer forward-jump patterns (jump past a block you want to skip).","IF_SSID TargetCorp\n  GOTO found\nEND_IF\nLED_ON #FF0000\nGOTO done\nLABEL found\nLED_BLINK 3 #00FF00\nLABEL done"],
+ ["LABEL <name>","Named marker targeted by GOTO and ON_ERROR JUMP. Lines with LABEL are no-ops during execution.","LABEL cleanup\nLED_OFF\nSCREEN_CLR"],
  ["IF / ELSE_IF / ELSE / END_IF","The general conditional. Conditions compare VALUE COMMANDS (see below) against literals with = or !=, or use bare truthiness. Blocks nest, and ELSE_IF is evaluated lazily top-to-bottom.","IF GET_IP = 192.168.0.1\n  STRING we are on the home network\nELSE_IF WIFI_CONNECTED != false\n  STRING on some other network\nELSE\n  STRING offline\nEND_IF"],
  ["IF_OS <name>","Runs the block only if the last DETECT_OS result matches: windows, linux, macos, ios, android, chromeos or unknown. Requires DETECT_OS to have run (device auto-detect can be enabled in Settings).","DETECT_OS\nIF_OS windows\n  GUI r\nELSE_IF macos\n  GUI SPACE\nEND_IF"],
  ["IF_SSID <name>","True if a WiFi access point with that SSID is currently visible. Scans for ~2 seconds.","IF_SSID HomeNetwork\n  CONNECT_AP HomeNetwork mypassword\nEND_IF"],
@@ -1019,11 +1022,14 @@ const REF_GROUPS=[
  ["SELF_DESTRUCT","Wipes EVERYTHING including firmware. Recovery only by re-flash. Absolute last resort.","SELF_DESTRUCT"],
  ["LOG <message>","Write a message to the encrypted device log (Status page).","LOG payload finished cleanly"],
  ["USB_STORAGE <enable|disable>","Expose the SD card as a USB drive alongside HID so scripts can move files. Re-enumerates USB on change.","USB_STORAGE enable\nDELAY 3000"],
+ ["USB_SPOOF <vid> <pid> [mfr [product]]","Set the USB identity (hex VID/PID + optional strings), e.g. look like a generic office keyboard. Persisted - applies at NEXT boot (descriptors are read once at enumeration). Pairs with REBOOT to apply immediately.","USB_SPOOF 046D C31C Logitech Keyboard"],
+ ["REBOOT","Clean device restart. Use after USB_SPOOF to apply the new identity, or to recover from a weird state.","USB_SPOOF 1234 5678 Fake Keyboard\nDELAY 500\nREBOOT"],
  ["BRUTEFORCE_PIN <len> [delayMs]","Types every numeric code of the given length (0000, 0001, ...), pressing Enter after each and backspacing for the next. Default 500 ms between attempts. Stop anytime via the web UI.","BRUTEFORCE_PIN 4 300"],
  ["BRUTEFORCE_LOGIN <file>","Types user/password pairs from a file on the SD card (lines like user:pass or user,pass). Tab between fields, Enter to submit, 800 ms pace.","BRUTEFORCE_LOGIN /creds.txt"],
  ["TUNNEL ON|OFF","Enable or disable external relay access (Settings > External Access).","TUNNEL ON"],
  ["DEAUTH <ssid> [seconds] [method]","Deauth attack against an AP by SSID: scans for it, captures stations via promiscuous sniffing, sends deauth frames, captures EAPOL handshakes to /pcap/. Methods: 0=deauth, 1=disassoc, 2=auth flood, 3=EAPOL-Logoff, 4=beacon spam. Runs once for the given time then restores normal WiFi. Device OFFLINE during. BOOT aborts. AUTHORIZED NETWORKS ONLY.","DEAUTH TargetNetwork 30 0"],
- ["PCAP_CAPTURE <seconds> [channel]","Promiscuous full-traffic WiFi capture to /pcap/*.pcap on SD (openable in Wireshark). Blocks the script while running.","PCAP_CAPTURE 60 6"],
+ ["SSID_SPAM <seconds> [name1,name2,...]","Beacon flood: broadcasts fake AP beacons (up to 16 networks, sweeping channels 1-13 so scanners everywhere see them). No names = 16 random networks. Blocks the script; device OFFLINE during. AUTHORIZED USE ONLY.","SSID_SPAM 60 CoffeeShop,Airport_Free_WiFi,Hotel_Guest"],
+ ["PCAP_CAPTURE <seconds> [channel]","Promiscuous full-traffic WiFi capture to /pcap/*.pcap on SD (openable in Wireshark). Blocks the script while running. Captures containing WPA handshakes are auto-converted to hashcat 22000 format (.22000 next to the .pcap).","PCAP_CAPTURE 60 6"],
 ]],
 ];
 
