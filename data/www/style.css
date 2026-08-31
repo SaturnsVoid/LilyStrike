@@ -238,7 +238,7 @@ pre.example{background:var(--code-bg);border:1px solid var(--border);border-radi
 /* ---- settings cards ---- */
 .setgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
 .setcard{background:var(--panel);border:1px solid var(--border);border-radius:12px;
-  padding:16px;box-shadow:var(--shadow)}
+  padding:16px;box-shadow:var(--shadow);margin-bottom:16px}
 .setcard h3{display:flex;align-items:center;gap:8px;font-size:14px;margin:0 0 4px}
 .setcard h3 svg{width:15px;height:15px;color:var(--accent)}
 .setcard .desc{font-size:12px;color:var(--muted);margin:0 0 12px}
