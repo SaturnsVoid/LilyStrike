@@ -331,7 +331,7 @@ static void handleResourcesList(const String& id) {
     r += "{\"uri\":\"lilystrike://status\",\"name\":\"Device status\",\"mimeType\":\"application/json\",\"description\":\"Live status snapshot\"},";
     r += "{\"uri\":\"lilystrike://logs/system\",\"name\":\"System log\",\"mimeType\":\"text/plain\",\"description\":\"Recent log lines\"},";
     r += "{\"uri\":\"lilystrike://scripts\",\"name\":\"Script list\",\"mimeType\":\"application/json\",\"description\":\"Saved script filenames\"},";
-    r += "{\"uri\":\"lilystrike://analyzer/last\",\"name\":\"Last analyzer session\",\"mimeType\":\"application/json\",\"description\":\"Frame totals + APs from the last WiFi analyzer run\"},";
+    r += "{\"uri\":\"lilystrike://analyzer/last\",\"name\":\"Last analyzer session\",\"mimeType\":\"application/json\",\"description\":\"Frame totals + APs from the last WiFi analyzer run\"}";
     // per-script resources (dynamic)
     File dir = SD_MMC.open("/scripts");
     if (dir) {

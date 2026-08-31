@@ -166,6 +166,7 @@ static void jsonErr(int code, const String& msg) {
 // tab). Log which, throttled so a 401-storm doesn't spam the SD log.
 static uint32_t s_last401Log = 0;
 static volatile bool s_otaReboot = false;   // set after a successful OTA write
+static bool s_otaActive = false;            // Update begun and streaming
 static void requireAuth() {
     if (isAuthed()) return;
     jsonErr(401, "unauthorized");
@@ -1557,23 +1558,39 @@ void setupRoutes() {
     ota->setUri("/api/ota"); ota->setMethod(HTTP_POST);
     ota->onBody([](AsyncWebServerRequest* r, uint8_t* d, size_t len, size_t index, size_t total) {
         if (index == 0) {
+            logLine("ota: first chunk total=" + String(total) +
+                    " free=" + String(ESP.getFreeSketchSpace()));
             // auth on first chunk: raw request, shim context not active here
-            if (!r->hasHeader("Cookie")) return;
+            if (!r->hasHeader("Cookie")) { logLine("ota: no cookie header"); return; }
             const AsyncWebHeader* h = r->getHeader("Cookie");
-            if (!h || !h->value().startsWith("sid=")) return;
+            if (!h || !h->value().startsWith("sid=")) { logLine("ota: no sid in cookie"); return; }
             String tok = h->value().substring(4); int e = tok.indexOf(';');
             if (e >= 0) tok = tok.substring(0, e); tok.trim();
-            if (!sessionActive(tok)) return;
-            // only allow OTA to the slot matching the running app size
+            if (!sessionActive(tok)) { logLine("ota: bad session"); return; }
             uint32_t maxSize = ESP.getFreeSketchSpace();
-            if (total == 0 || total > maxSize) return;
-            Update.begin(total);
+            if (total == 0 || total > maxSize) { logLine("ota: bad size"); return; }
+            if (!Update.begin(total)) {
+                StreamString err; Update.printError(err);
+                logLine("ota: begin FAILED: " + err);
+                return;
+            }
+            s_otaActive = true;
+            logLine("ota: begin ok");
         }
-        Update.write(d, len);
+        if (s_otaActive) {
+            size_t w = Update.write(d, len);
+            if (w != len) { logLine("ota: SHORT WRITE " + String(w) + "/" + String(len)); }
+        }
     });
     ota->onRequest([](AsyncWebServerRequest* r) {
+        bool active = s_otaActive;
+        s_otaActive = false;
+        logLine("ota: end active=" + String(active ? 1 : 0) +
+                " hasError=" + String(Update.hasError()));
+        if (!active) { r->send(500, "text/plain", "OTA not started (auth?)"); return; }
         if (Update.hasError() || !Update.end(true)) {
             StreamString err; Update.printError(err);
+            Update.abort();                       // reset state for the next try
             logLine("ota: FAILED " + err);
             r->send(500, "text/plain", "OTA failed: " + err);
             return;
