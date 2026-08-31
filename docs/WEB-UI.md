@@ -81,7 +81,8 @@ Grouped cards, each with its own save button; empty fields = unchanged.
 | Interface | Temporary disable (press BOOT to re-enable) / **permanent kill switch** (irreversible without reflash) |
 | MCP | Enable server, token (min 8 chars) — takes effect immediately, no reboot |
 | Power mode | Low (80 MHz/10 dBm) — Normal (160 MHz/17 dBm) — High (240 MHz/19.5 dBm, needs a strong USB port) |
-| MAC spoofing | Hardware / random-per-boot / custom MAC |
+| MAC spoofing | Hardware / random-per-boot / custom MAC + USB VID/PID/serial strings |
+| Config Backup | Export/import an encrypted snapshot to `/backup.enc` |
 
 ### Danger zone
 
@@ -89,6 +90,7 @@ Grouped cards, each with its own save button; empty fields = unchanged.
 - **Factory reset** — wipe all settings (keeps SD data)
 - **Format SD** — destroy everything on the card
 - **Self-destruct** — wipe secrets + settings and reboot (also scriptable — see `SELF_DESTRUCT`)
+- **Config Backup** — export every setting (including secrets) encrypted to `/backup.enc`; restore requires the same encryption password, applies the snapshot and reboots. Kill switches are never restored (safety).
 
 ---
 

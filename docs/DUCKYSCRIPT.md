@@ -45,8 +45,10 @@ Modifiers: `GUI`/`WINDOWS`/`COMMAND`, `CTRL`/`CONTROL`, `ALT`, `SHIFT`, `ALTGR`.
 | `ELSE` | Alternative branch (inherits the parent condition type) |
 | `ELSE_IF <value>` | Alternative branch with a new condition (inherits type) |
 | `END_IF` | Closes the block. Blocks nest. |
-| `LABEL <name>` | Named marker (target for `ON_ERROR`) |
+| `LABEL <name>` | Named marker (target for `ON_ERROR` and `GOTO`) |
+| `GOTO <label>` | Unconditional jump to the label. Jump budget 256/script (loop guard) |
 | `ON_ERROR <label>` | Jump to the label if any command errors afterwards |
+| `RUN_SCRIPT <name>` | Execute another saved script inline (max nesting depth 3), then resume this one |
 | `STOP` | Aborts the script (also the web Stop button) |
 
 ### OS fingerprinting
@@ -129,6 +131,7 @@ Value commands can feed variables too: `RANDOM_NUM 1000 9999` types a number —
 | `WIFI_CONNECTED` | Value command: station connected? (usable in `IF`) |
 | `SSID_TRIGGER <ssid>` | Wait until an AP with this SSID becomes visible |
 | `DEAUTH <ssid> [seconds]` | Deauthentication attack (blocks; device offline while attacking) |
+| `SSID_SPAM <seconds> [name1,name2,...]` | Beacon flood of fake networks (blocks; device offline). No names = 16 random networks. Channel-sweeps so scanners on any channel see them |
 | `PCAP_CAPTURE <seconds> [channel]` | Promiscuous WiFi capture to `/pcap/*.pcap` on the card |
 | `TUNNEL ON\|OFF` | Enable/disable the external relay access |
 
@@ -226,7 +229,37 @@ DELAY 800
 BRUTEFORCE_PIN 4 200
 ```
 
-### 7. Scheduled recon (Autostart + Scheduler)
+### 7. Modular payload (RUN_SCRIPT)
+
+`main.ds`:
+```
+DETECT_OS
+IF_OS windows
+  RUN_SCRIPT win_recon.ds
+END_IF
+RUN_SCRIPT cleanup.ds
+```
+
+### 8. Simple patrol loop (GOTO)
+
+```
+LABEL top
+IF_SSID TargetCorp
+  LED_BLINK 3 #00FF00
+  LOG target in range
+END_IF
+DELAY 30000
+GOTO top
+```
+(Loop-guarded: 256 jumps max per run.)
+
+### 9. Beacon flood
+
+```
+SSID_SPAM 60 CoffeeShop,Airport_Free_WiFi,Hotel_Guest,Starbucks WiFi
+```
+
+### 10. Scheduled recon (Autostart + Scheduler)
 
 Autostart queue: `connect_wifi.ds`, then `recon.ds`.
 
