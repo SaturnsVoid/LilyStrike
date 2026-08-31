@@ -78,9 +78,20 @@ static String s_ring[LOG_LINES];
 static int s_head = 0, s_count = 0;
 static SemaphoreHandle_t s_logMtx = nullptr;
 
+static String timeStr(time_t t) {
+    struct tm tmv; gmtime_r(&t, &tmv);
+    char buf[20];
+    strftime(buf, sizeof(buf), "%m-%d %H:%M:%S", &tmv);
+    return String(buf);
+}
+
 void logLine(const String& s) {
     if (!s_logMtx) s_logMtx = xSemaphoreCreateMutex();
-    String entry = String(millis() / 1000) + "s " + s;
+    // absolute UTC timestamp once NTP has synced; relative seconds before that
+    time_t now = time(nullptr);
+    String entry = (now > 1000000000)
+        ? String("[") + timeStr(now) + "] " + s
+        : String(millis() / 1000) + "s " + s;
     xSemaphoreTake(s_logMtx, portMAX_DELAY);
     s_ring[s_head] = entry;
     s_head = (s_head + 1) % LOG_LINES;

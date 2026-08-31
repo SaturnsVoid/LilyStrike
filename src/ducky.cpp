@@ -92,6 +92,7 @@ static USBHIDMouse mouse;
 static bool kbStarted = false;
 static volatile bool g_running = false;
 static bool s_wasStopped = false;   // set by stop(), read via wasStopped()
+static uint32_t s_lastNtp = 0;      // millis() of last NTP sync (0 = never)
 static volatile bool g_stopRequested = false;
 static String s_state = "STANDBY";
 
@@ -747,10 +748,16 @@ RunResult run(const String& scriptText, const String& name) {
             logLine("[script:" + name + "] CONNECT_AP '" + ssid + "' " +
                     (ok ? "connected "+WiFi.localIP().toString() : "FAILED"));
             if (ok) {
+                // NTP: real clock makes scheduler 'at' entries usable and log
+                // timestamps absolute. Non-blocking; resyncs hourly below.
+                configTime(0, 0, "pool.ntp.org", "time.google.com");
+                s_lastNtp = millis();
                 // Confirm stability: if it drops within 5s, report it
                 delay(5000);
                 if (WiFi.status()!=WL_CONNECTED)
                     logLine("[script:" + name + "] CONNECT_AP: connection unstable - check channel/signal");
+                else if (time(nullptr) > 1000000000)
+                    logLine("[script:" + name + "] time synced via NTP");
             }
         }
         else if (cmd.equalsIgnoreCase("DISCON_AP"))   {
@@ -868,6 +875,12 @@ RunResult run(const String& scriptText, const String& name) {
                     break;
                 }
             }
+        }
+        // hourly NTP resync while online (cheap, non-blocking)
+        if (s_lastNtp && millis() - s_lastNtp > 3600000UL &&
+            WiFi.status() == WL_CONNECTED) {
+            configTime(0, 0, "pool.ntp.org", "time.google.com");
+            s_lastNtp = millis();
         }
         if (executed) res.linesRun++;
         if (defaultDelay && executed) delay(defaultDelay);
