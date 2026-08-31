@@ -16,24 +16,12 @@
 #include <esp_netif.h>
 #include <esp_netif_net_stack.h>
 #include <lwip/tcpip.h>
-#include <esp_netif.h>
-#include <esp_netif_net_stack.h>
-#include <lwip/tcpip.h>
 #include <vector>
 #include <algorithm>
-#include <esp_netif.h>
-#include <esp_netif_net_stack.h>
-#include <lwip/tcpip.h>
 
 // Resolve the STA lwIP netif the WifiPhisher way - netif_default can be the
 // AP netif in AP+STA mode, and calling etharp against the wrong netif is
-// what reset the device.
-static struct netif* staNetif() {
-    esp_netif_t* en = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-    if (!en) return nullptr;
-    return (struct netif*)esp_netif_get_netif_impl(en);
-}
-
+// what reset the device. (definition inside namespace hostrecon below)
 namespace hostrecon {
 
 static volatile bool s_scanning = false;
@@ -52,55 +40,91 @@ static String macStr(const uint8_t* m) {
     return String(b);
 }
 
-std::vector<Host> arpSweep() {
+// ---- async sweep: dedicated task + cached results (HTTP handler must not
+// block 60s+ on 254 WiFi broadcasts) ----
+static std::vector<Host> s_result;
+static SemaphoreHandle_t s_resMtx = nullptr;
+static uint8_t s_progress = 0;
+static void resLock() { if (!s_resMtx) s_resMtx = xSemaphoreCreateMutex(); xSemaphoreTake(s_resMtx, portMAX_DELAY); }
+static void resUnlock() { if (s_resMtx) xSemaphoreGive(s_resMtx); }
+
+static void sweepTask(void*) {
     std::vector<Host> out;
-    if (WiFi.status() != WL_CONNECTED) return out;
-    struct netif* nif = staNetif();        // BUGFIX: was netif_default (AP netif
-    if (!nif) { s_scanning = false; return out; }   // in AP+STA -> crash)
-    s_scanning = true;
+    if (WiFi.status() == WL_CONNECTED) {
+        struct netif* nif = staNetif();
+        if (nif) {
+            IPAddress mine = WiFi.localIP();
+            // BUGFIX: lwIP addresses are NETWORK byte order. The old host-order
+            // construction sent every ARP to a byte-swapped IP (e.g. 5.12.168.192)
+            // so the sweep always found nothing. IPAddress's uint32_t conversion is
+            // already in lwIP's native order.
+            uint32_t base = (uint32_t)mine & 0xFFFFFF00UL;
+            uint8_t myLast = mine[3];
 
-    IPAddress mine = WiFi.localIP();
-    uint32_t base = (mine[0]<<24)|(mine[1]<<16)|(mine[2]<<8);
-    uint8_t myLast = mine[3];
+            struct SweepCtx { struct netif* nif; uint32_t base; uint8_t myLast; };
+            SweepCtx ctx{nif, base, myLast};
+            auto sendReqs = [](void* c) {
+                auto* m = (SweepCtx*)c;
+                for (int last = 1; last < 255; last++) {
+                    if (last == m->myLast) continue;
+                    ip4_addr_t dest;
+                    dest.addr = m->base | last;
+                    etharp_request(m->nif, &dest);
+                    if ((last % 16) == 0) delay(2);
+                }
+            };
+            tcpip_callback_wait(sendReqs, &ctx);
 
-    // Phase 1: ARP requests ON the tcpip thread via callback_wait.
-    // Direct etharp_request from loopTask resets the device (no core lock
-    // in this lwIP build; linkoutput ran from the wrong thread).
-    struct SweepCtx { struct netif* nif; uint32_t base; uint8_t myLast; };
-    SweepCtx ctx{nif, base, myLast};
-    auto sendReqs = [](void* c) {
-        auto* m = (SweepCtx*)c;
-        for (int last = 1; last < 255; last++) {
-            if (last == m->myLast) continue;
-            ip4_addr_t dest;
-            dest.addr = m->base | last;
-            etharp_request(m->nif, &dest);
-            if ((last % 16) == 0) delay(2);
+            delay(1500);  // let replies land (254 requests on a busy WiFi subnet)
+
+            for (int last = 1; last < 255; last++) {
+                if (last == myLast) continue;
+                ip4_addr_t dest;
+                dest.addr = base | last;
+                struct eth_addr* eth = nullptr;
+                const ip4_addr_t* ipret = nullptr;
+                if (etharp_find_addr(nif, &dest, &eth, &ipret) >= 0 && eth) {
+                    Host h;
+                    IPAddress ip((base>>24)&0xFF, (base>>16)&0xFF, (base>>8)&0xFF, last);
+                    h.ip = ip.toString();
+                    h.mac = macStr(eth->addr);
+                    out.push_back(h);
+                }
+                s_progress = (uint8_t)(last * 100 / 254);
+                if ((last % 32) == 0) delay(1);
+            }
         }
-    };
-    tcpip_callback_wait(sendReqs, &ctx);
-
-    delay(600);   // let replies land
-
-    for (int last = 1; last < 255; last++) {
-        if (last == myLast) continue;
-        ip4_addr_t dest;
-        dest.addr = base | last;
-        struct eth_addr* eth = nullptr;
-        const ip4_addr_t* ipret = nullptr;
-        if (etharp_find_addr(nif, &dest, &eth, &ipret) >= 0 && eth) {
-            Host h;
-            IPAddress ip((base>>24)&0xFF, (base>>16)&0xFF, (base>>8)&0xFF, last);
-            h.ip = ip.toString();
-            h.mac = macStr(eth->addr);
-            out.push_back(h);
-        }
-        if ((last % 32) == 0) delay(1);
     }
+    resLock(); s_result = out; resUnlock();
+    s_progress = 100;
     s_scanning = false;
+    vTaskDelete(nullptr);
+}
+
+bool arpStart() {
+    if (s_scanning || WiFi.status() != WL_CONNECTED) return false;
+    s_scanning = true;
+    s_progress = 0;
+    resLock(); s_result.clear(); resUnlock();
+    if (xTaskCreatePinnedToCore(sweepTask, "arpsweep", 8192, nullptr, 1, nullptr, 0) != pdPASS) {
+        s_scanning = false;
+        return false;
+    }
+    return true;
+}
+
+std::vector<Host> arpResults() {
+    resLock(); std::vector<Host> out = s_result; resUnlock();
     return out;
 }
 
+uint8_t arpProgress() { return s_progress; }
+
+std::vector<Host> arpSweep() {   // legacy sync wrapper (tests)
+    if (!arpStart()) return {};
+    while (scanning()) delay(100);
+    return arpResults();
+}
 std::vector<uint16_t> portScan(const String& ipStr, const std::vector<uint16_t>& ports) {
     std::vector<uint16_t> open;
     if (WiFi.status() != WL_CONNECTED) return open;

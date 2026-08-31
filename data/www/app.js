@@ -833,16 +833,28 @@ function sendToEvil(ssid){
   setTimeout(()=>{ const el=$("#evilSsid"); if(el){ el.value=ssid; toast("EvilAP SSID loaded: "+ssid); } }, 60);
 }
 async function doArpSweep(){
-  $("#arpBtn").disabled=true; $("#arpBtn").textContent="Sweeping...";
+  const btn=$("#arpBtn"), tbl=$("#hostTable");
+  btn.disabled=true; btn.textContent="Sweeping...";
   try{
-    const hosts=await jpost("/api/recon/arp",{});
-    $("#hostTable").innerHTML="<tr><th>IP</th><th>MAC</th></tr>"+
-      hosts.map(h=>`<tr><td class="mono">${esc(h.ip)}</td><td class="mono">${esc(h.mac)}</td></tr>`).join("")
-      || `<tr><td colspan="2" class="muted">No live hosts found</td></tr>`;
-    if(hosts.length) toast(hosts.length+" host(s) found");
+    const r=await jpost("/api/recon/arp",{});
+    if(!r.ok){ toast(r.error||"sweep failed","err"); btn.disabled=false; btn.textContent="ARP Sweep (find hosts)"; return; }
+    // poll until the background sweep completes
+    while(true){
+      await new Promise(r=>setTimeout(r,1500));
+      const st=await api("/api/recon/arp");
+      btn.textContent=`Sweeping ${st.progress}%...`;
+      if(!st.scanning){
+        tbl.innerHTML=st.hosts.length
+          ? "<tr><th>IP</th><th>MAC</th></tr>"+st.hosts.map(h=>`<tr><td class="mono">${esc(h.ip)}</td><td class="mono">${esc(h.mac)}</td></tr>`).join("")
+          : `<tr><td colspan="2" class="muted">No live hosts found</td></tr>`;
+        toast(st.hosts.length+" host(s) found");
+        break;
+      }
+    }
   }catch(e){ toast("Sweep failed","err"); }
-  $("#arpBtn").disabled=false; $("#arpBtn").textContent="ARP Sweep (find hosts)";
+  btn.disabled=false; btn.textContent="ARP Sweep (find hosts)";
 }
+
 async function doPortScan(){
   const ip=$("#psIp").value.trim(); if(!ip)return toast("Enter a host IP","err");
   const plist=$("#psPorts").value.trim();

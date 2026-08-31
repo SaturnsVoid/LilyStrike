@@ -706,18 +706,31 @@ static void hEulaSet() {
 // ---- Host recon (ARP sweep + port scan) ----
 static void hArpSweep() {
     requireAuth(); if (!isAuthed()) return;
-    if (WiFi.status() != WL_CONNECTED) return jsonErr(409, "not connected to a network");
-    if (hostrecon::scanning()) return jsonErr(409, "scan in progress");
-    auto hosts = hostrecon::arpSweep();
-    String out = "[";
-    for (size_t i = 0; i < hosts.size(); i++) {
-        if (i) out += ",";
-        out += "{\"ip\":\"" + hosts[i].ip + "\",\"mac\":\"" + hosts[i].mac + "\"}";
+    if (server.method() == HTTP_POST) {
+        bool ok = hostrecon::arpStart();
+        if (!ok && !hostrecon::scanning()) return jsonErr(400, "no station network (CONNECT_AP first) or sweep already running");
+        json(202, "{\"ok\":true,\"started\":true}");
+        return;
     }
-    json(200, out + "]");
+    // GET: poll results
+    bool sc = hostrecon::scanning();
+    String hosts = "\"hosts\":[";
+    if (!sc) {
+        auto v = hostrecon::arpResults();
+        bool first = true;
+        for (auto& h : v) {
+            if (!first) hosts += ",";
+            first = false;
+            hosts += "{\"ip\":\"" + h.ip + "\",\"mac\":\"" + h.mac + "\"}";
+        }
+    }
+    hosts += "]";
+    json(200, "{\"ok\":true,\"scanning\":" + String(sc ? "true" : "false") +
+              ",\"progress\":" + String(hostrecon::arpProgress()) + "," + hosts + "}");
 }
+
 static const uint16_t TOP_PORTS[] = {80,443,22,445,3389,8080,8000,8443,21,23,25,53,
-    110,143,993,995,1433,3306,5432,5900,6379,27017,9100,161,1900};
+110,111,135,139,143,161,389,631,993,995,1080,1433,3306,3389,5432,5900,6379,8080,9100};
 static void hPortScan() {
     requireAuth(); if (!isAuthed()) return;
     if (WiFi.status() != WL_CONNECTED) return jsonErr(409, "not connected");
@@ -1490,6 +1503,7 @@ void setupRoutes() {
     server.on("/api/deauth/status", HTTP_GET, hDeauthStatus);
     server.on("/api/pcap/start", HTTP_POST, hPcapStart);
     server.on("/api/recon/arp", HTTP_POST, hArpSweep);
+    server.on("/api/recon/arp", HTTP_GET, hArpSweep);
     server.on("/api/recon/ports", HTTP_POST, hPortScan);
     server.on("/api/karma/start", HTTP_POST, hKarmaStart);
     server.on("/api/karma/stop", HTTP_POST, [](void){

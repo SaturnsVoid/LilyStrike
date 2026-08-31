@@ -13,9 +13,12 @@ namespace hostrecon {
 
 struct Host { String ip, mac; };
 
-// Blocking ARP sweep of x.y.z.1-254 around our own IP. ~3-5s.
-// Returns live hosts sorted by IP. Requires station-connected WiFi.
-std::vector<Host> arpSweep();
+// ARP sweep of x.y.z.1-254 around our own IP, run in a background task
+// (254 WiFi broadcasts block way too long for an HTTP handler).
+// arpStart() kicks it off; poll arpResults() until scanning() is false.
+bool arpStart();                       // false if already scanning / no WiFi
+std::vector<Host> arpResults();        // last/current sweep results
+uint8_t arpProgress();                 // % of addresses probed
 
 // Blocking TCP connect scan on one host. ports = sorted list.
 // Returns open port numbers. ~150ms per closed port, instant on open.
