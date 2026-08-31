@@ -38,6 +38,41 @@ Errors are JSON-RPC error objects: `-32001` auth, `-32002` MCP disabled.
 | `screen` | Draw on the device LCD |
 | `system_config` | Read/update settings (power mode, MAC spoof, MCP, tunnel, …) |
 
+## Resources (Phase 2)
+
+Read-only data the LLM can browse instead of calling tools:
+
+| URI | Contents |
+|---|---|
+| `lilystrike://status` | Live status snapshot (JSON) |
+| `lilystrike://logs/system` | Recent log lines (text) |
+| `lilystrike://scripts` | JSON array of saved script names |
+| `lilystrike://scripts/<name>` | Decrypted script text |
+| `lilystrike://analyzer/last` | Last WiFi analyzer session (JSON) |
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"resources/list"}
+{"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"lilystrike://scripts/demo-chain.ds"}}
+```
+
+**Subscriptions** (pragmatic model): `resources/subscribe` / `unsubscribe` are
+accepted, but the plain-POST transport can't push — clients instead poll:
+
+```json
+{"jsonrpc":"2.0","id":3,"method":"resources/poll","params":{"sinceVersion":1}}
+→ {"version":12,"changed":["lilystrike://logs/system"]}
+```
+
+Bump hooks fire on log lines and script saves, so a client polling every few
+seconds sees exactly which resources changed. Re-add `subscribe` semantics
+natively when the transport moves to SSE/WebSocket.
+
+## Prompts (Phase 2)
+
+`prompts/list` → `triage_device`, `payload_author` (arg: `goal`),
+`analyze_capture`. `prompts/get` returns ready-made user messages that walk
+the LLM through reading the right resources first.
+
 ## Example: curl
 
 ```bash
