@@ -59,6 +59,7 @@
 #include <esp32-hal.h>
 #include <mbedtls/base64.h>
 #include <ESPmDNS.h>
+#include <Update.h>
 #include "power.h"
 #include "detect_os.h"
 #include "sys.h"
@@ -162,6 +163,7 @@ static void jsonErr(int code, const String& msg) {
 // mismatch on a live token is a different beast (host flip via mDNS, stale
 // tab). Log which, throttled so a 401-storm doesn't spam the SD log.
 static uint32_t s_last401Log = 0;
+static volatile bool s_otaReboot = false;   // set after a successful OTA write
 static void requireAuth() {
     if (isAuthed()) return;
     jsonErr(401, "unauthorized");
@@ -1390,6 +1392,11 @@ static uint32_t s_lastPush = 0;
 void handle() {
     if (!s_running) return;
     ws.cleanupClients();
+    if (s_otaReboot) {          // OTA response flushed - now swap images
+        s_otaReboot = false;
+        delay(500);
+        ESP.restart();
+    }
     if (s_wsPushOnConnect) {
         s_wsPushOnConnect = false;
         if (ws.count()) wsPushStatus();   // safe: wsEvent now queues
@@ -1522,6 +1529,38 @@ void setupRoutes() {
     server.on("/login.html", HTTP_GET, hLoginHtml);
     server.on("/", HTTP_GET, hIndex);
     server.on("/index.html", HTTP_GET, hIndex);
+    // ---- OTA firmware update (streaming; bypasses the shim body buffer) ----
+    auto* ota = new AsyncCallbackWebHandler();
+    ota->setUri("/api/ota"); ota->setMethod(HTTP_POST);
+    ota->onBody([](AsyncWebServerRequest* r, uint8_t* d, size_t len, size_t index, size_t total) {
+        if (index == 0) {
+            // auth on first chunk: raw request, shim context not active here
+            if (!r->hasHeader("Cookie")) return;
+            const AsyncWebHeader* h = r->getHeader("Cookie");
+            if (!h || !h->value().startsWith("sid=")) return;
+            String tok = h->value().substring(4); int e = tok.indexOf(';');
+            if (e >= 0) tok = tok.substring(0, e); tok.trim();
+            if (!sessionActive(tok)) return;
+            // only allow OTA to the slot matching the running app size
+            uint32_t maxSize = ESP.getFreeSketchSpace();
+            if (total == 0 || total > maxSize) return;
+            Update.begin(total);
+        }
+        Update.write(d, len);
+    });
+    ota->onRequest([](AsyncWebServerRequest* r) {
+        if (Update.hasError() || !Update.end(true)) {
+            StreamString err; Update.printError(err);
+            logLine("ota: FAILED " + err);
+            r->send(500, "text/plain", "OTA failed: " + err);
+            return;
+        }
+        logLine("ota: update applied (" + String(Update.size() / 1024) + "KB) - rebooting");
+        r->send(200, "application/json", "{\"ok\":true,\"reboot\":true}");
+        s_otaReboot = true;
+    });
+    server.raw().addHandler(ota);
+
     server.onNotFound(hStatic);
 }
 
