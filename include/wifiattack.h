@@ -40,6 +40,7 @@ enum Method : uint8_t {
     M_BEACON_SPAM       // fake beacon spam on the target channel
 };
 bool startDeauth(const String& ssid, uint32_t seconds, uint8_t method = 0);
+bool ssidSpam(const String& csvNames, uint32_t seconds);   // beacon flood, blocks
 void stop();                                              // abort + restore
 bool startPcap(const String& name, uint8_t channel, uint32_t seconds);
 

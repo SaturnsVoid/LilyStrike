@@ -572,6 +572,18 @@ RunResult run(const String& scriptText, const String& name) {
             while (wifiattack::attacking() && !g_stopRequested) delay(200);
             hw::screenOn();
         }
+        else if (cmd.equalsIgnoreCase("SSID_SPAM"))     {
+            // SSID_SPAM <seconds> [name1,name2,...] - beacon flood; blocks;
+            // device offline during execution. No names -> 16 random ones.
+            int sp2 = args.indexOf(' ');
+            long secs = (sp2>0)?constrain(args.substring(0,sp2).toInt(),5,300):30;
+            String names = (sp2>0)?args.substring(sp2+1):String("");
+            names.trim();
+            logLine("[script:" + name + "] SSID_SPAM " + String(secs) + "s");
+            hw::screenOff();
+            wifiattack::ssidSpam(names, (uint32_t)secs);
+            hw::screenOn();
+        }
         else if (cmd.equalsIgnoreCase("PCAP_CAPTURE"))  {
             // PCAP_CAPTURE <seconds> [channel] - full-traffic promiscuous
             // capture to /pcap/<name>.pcap. (Plan said "NCM mode"; this
