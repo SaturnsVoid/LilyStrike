@@ -363,6 +363,7 @@ static void hScriptSave() {
     text = normalizeEol(text);   // cross-platform line-ending hygiene
     bool ok = encryptToFile(("/scripts/" + name).c_str(), text);
     logLine("web: saved script " + name);
+    mcp::resBump("lilystrike://scripts");   // resource list changed
     json(ok ? 200 : 500, String("{\"ok\":") + (ok?"true":"false") + "}");
 }
 
@@ -372,6 +373,7 @@ static void hScriptDelete() {
     bool ok = SD_MMC.remove(("/scripts/" + name).c_str());
     // meta sidecar (description + layout) dies with its script
     if (ok) SD_MMC.remove(metaPath(name).c_str());
+    mcp::resBump("lilystrike://scripts");   // resource list changed
     json(ok ? 200 : 500, String("{\"ok\":") + (ok ? "true" : "false") + "}");
 }
 

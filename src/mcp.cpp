@@ -24,7 +24,7 @@
 #include <esp_system.h>
 
 #include "util.h"
-namespace web { WebSrvShim* webServerPtr(); }   // glue in webserver.cpp
+namespace web { WebSrvShim* webServerPtr(); String buildStatusJson(); }   // glue in webserver.cpp
 using web::webServerPtr;
 
 namespace mcp {
@@ -187,6 +187,7 @@ static String toolCall(const String& name, const String& body) {
             String j = "{\"desc\":\"" + desc + "\",\"layout\":\"" + (layout.length()?layout:String("en_US")) + "\"}";
             encryptToFile(("/scripts/" + sn + ".meta").c_str(), j);
         }
+        if (ok) resBump("lilystrike://scripts");
         return toolText(ok ? "saved " + sn : "error: SD write failed");
     }
     if (name == "read_script") {
@@ -270,6 +271,138 @@ static String sysSet(const String& body) {
     return toolText(s);
 }
 
+
+// ============================================================ Phase 2: resources
+// Read-only data an LLM can browse. Versions enable cheap change polling
+// (pragmatic subscription model - the plain-POST transport can't push).
+struct ResVer { const char* uri; uint32_t ver; };
+static ResVer s_resVer[] = {
+    { "lilystrike://logs/system",   1 },
+    { "lilystrike://scripts",       1 },
+    { "lilystrike://analyzer/last", 1 },
+};
+static uint32_t s_resVerMax = 1;
+static const size_t s_resVerN = sizeof(s_resVer) / sizeof(s_resVer[0]);
+void resBump(const char* uri) {                 // global: called from config.cpp/webserver.cpp
+    for (auto& r : s_resVer)
+        if (strcmp(r.uri, uri) == 0) { r.ver = ++s_resVerMax; return; }
+}
+
+static String listScriptNames() {               // names from the SD card
+    String out = "[";
+    File dir = SD_MMC.open("/scripts");
+    if (!dir) return out + "]";
+    File f;
+    bool first = true;
+    while ((f = dir.openNextFile())) {
+        String n = f.name();
+        if (n.endsWith(".ds")) {
+            if (!first) out += ",";
+            first = false;
+            out += "\"" + n + "\"";
+        }
+        f.close();
+    }
+    dir.close();
+    return out + "]";
+}
+
+static String readResource(const String& uri) {  // returns file CONTENT (text) or ""
+    String content = "";
+    if (uri == "lilystrike://status")   return "{}";  // handled inline (needs web::)
+    if (uri == "lilystrike://logs/system") return logGetAll();
+    if (uri == "lilystrike://scripts") { String names = listScriptNames(); return names; }
+    if (uri == "lilystrike://analyzer/last") {
+        String j;
+        decryptFromFile("/analyzer_last.enc", j);
+        return j;
+    }
+    if (uri.startsWith("lilystrike://scripts/")) {
+        String name = uri.substring(strlen("lilystrike://scripts/"));
+        name.replace("/", ""); name.replace("..", "");
+        decryptFromFile(("/scripts/" + name).c_str(), content);
+    }
+    return content;
+}
+
+static void handleResourcesList(const String& id) {
+    String names = listScriptNames();
+    String r = "{\"resources\":[";
+    r += "{\"uri\":\"lilystrike://status\",\"name\":\"Device status\",\"mimeType\":\"application/json\",\"description\":\"Live status snapshot\"},";
+    r += "{\"uri\":\"lilystrike://logs/system\",\"name\":\"System log\",\"mimeType\":\"text/plain\",\"description\":\"Recent log lines\"},";
+    r += "{\"uri\":\"lilystrike://scripts\",\"name\":\"Script list\",\"mimeType\":\"application/json\",\"description\":\"Saved script filenames\"},";
+    r += "{\"uri\":\"lilystrike://analyzer/last\",\"name\":\"Last analyzer session\",\"mimeType\":\"application/json\",\"description\":\"Frame totals + APs from the last WiFi analyzer run\"},";
+    // per-script resources (dynamic)
+    File dir = SD_MMC.open("/scripts");
+    if (dir) {
+        File f;
+        while ((f = dir.openNextFile())) {
+            String n = f.name();
+            if (n.endsWith(".ds"))
+                r += ",{\"uri\":\"lilystrike://scripts/" + n + "\",\"name\":\"Script: " + n +
+                     "\",\"mimeType\":\"text/plain\",\"description\":\"DuckyScript payload\"}";
+            f.close();
+        }
+        dir.close();
+    }
+    r += "]}";
+    jsonResult(id, r);
+}
+
+static void handleResourcesRead(const String& id, const String& body) {
+    String uri; extractJsonStr(body, "uri", uri);
+    if (!uri.length()) return jsonError(200, -32602, "uri required", id);
+    String text;
+    if (uri == "lilystrike://status") text = web::buildStatusJson();
+    else text = readResource(uri);
+    if (!text.length() && uri != "lilystrike://status" && uri != "lilystrike://logs/system" &&
+        uri != "lilystrike://scripts" && uri != "lilystrike://analyzer/last")
+        return jsonError(200, -32602, "unknown or empty resource: " + uri, id);
+    // JSON resources are embedded raw; text ones escaped
+    bool isJson = uri.endsWith("status") || uri == "lilystrike://scripts" || uri.endsWith("analyzer/last");
+    String esc = text; esc.replace("\\", "\\\\"); esc.replace("\"", "\\\""); esc.replace("\n", "\\n"); esc.replace("\r", "");
+    String r = "";
+    r += "{\"contents\":[{\"uri\":\"" + uri + "\",\"mimeType\":\"" + (isJson ? "application/json" : "text/plain") + "\",";
+    if (isJson) r += "\"text\":" + text;
+    else        r += "\"text\":\"" + esc + "\"";
+    r += "}]}";
+    jsonResult(id, r);
+}
+
+static void handleResourcesPoll(const String& id, const String& body) {
+    long since = extractJsonNum(body, "sinceVersion", 0);
+    String changed = "";
+    for (auto& r : s_resVer)
+        if (r.ver > (uint32_t)since) changed += (changed.length() ? "," : "") + String("\"") + r.uri + "\"";
+    jsonResult(id, "{\"version\":" + String(s_resVerMax) + ",\"changed\":[" + changed + "]}");
+}
+
+// ============================================================ Phase 2: prompts
+static void handlePromptsList(const String& id) {
+    jsonResult(id,
+        "{\"prompts\":["
+        "{\"name\":\"triage_device\",\"description\":\"Review the dongle's state, scripts and recent log, and suggest next actions\",\"arguments\":[]},"
+        "{\"name\":\"payload_author\",\"description\":\"Co-write a DuckyScript payload for a stated goal and save it to the device\",\"arguments\":[{\"name\":\"goal\",\"description\":\" What the payload should accomplish\",\"required\":true}]},"
+        "{\"name\":\"analyze_capture\",\"description\":\"Inspect the last WiFi capture / hashcat export and plan next steps\",\"arguments\":[]}"
+        "]}");
+}
+
+static void handlePromptsGet(const String& id, const String& body) {
+    String name; extractJsonStr(body, "name", name);
+    if (name == "triage_device") {
+        jsonResult(id, "{\"description\":\"Review device state\",\"messages\":[{\"role\":\"user\",\"content\":{\"type\":\"text\",\"text\":\"Here is my dongle's current status and script list. Summarize the state, flag anything unusual in the log, and suggest next actions. Status: use resources/read lilystrike://status. Log: lilystrike://logs/system. Scripts: lilystrike://scripts.\"}}]}");
+    } else if (name == "payload_author") {
+        String goal; extractJsonStr(body, "goal", goal);
+        goal.replace("\"", "'");
+        jsonResult(id, "{\"description\":\"Write a payload\",\"arguments\":[{\"name\":\"goal\"}],\"messages\":[{\"role\":\"user\",\"content\":{\"type\":\"text\",\"text\":\"Write a DuckyScript payload for this goal: " + goal +
+            ". Use the reference in resources (lilystrike://scripts lists examples; read one with resources/read). Include DELAYs for reliability, comments, and save it with the write_script tool when I approve.\"}}]}");
+    } else if (name == "analyze_capture") {
+        jsonResult(id, "{\"description\":\"Analyze last capture\",\"messages\":[{\"role\":\"user\",\"content\":{\"type\":\"text\",\"text\":\"Read lilystrike://analyzer/last and the recent log. Describe what networks/clients were seen and what the sensible next steps are (e.g. deauth+pcap for handshakes, then hashcat 22000 export).\"}}]}");
+    } else {
+        jsonError(200, -32602, "unknown prompt: " + name, id);
+    }
+}
+
 // ---------------------------------------------------------------- handler
 static void handleMcp() {
     if (!s_enabled) {
@@ -305,7 +438,8 @@ static void handleMcp() {
     logLine("mcp: " + method);
 
     if (method == "initialize") {
-        String r = "{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{\"tools\":{}},"
+        String r = "{\"protocolVersion\":\"2025-06-18\",\"capabilities\":"
+                   "{\"tools\":{\"listChanged\":true},\"resources\":{\"subscribe\":true,\"listChanged\":true},\"prompts\":{}},"
                    "\"serverInfo\":{\"name\":\"" FW_NAME "\",\"version\":\"" FW_VERSION "\"}}";
         jsonResult(id, r);
     } else if (method == "notifications/initialized") {
@@ -317,6 +451,19 @@ static void handleMcp() {
         String name = argStr(body, "name");
         // arguments object: we cheat by searching the raw body for arg keys
         jsonResult(id, toolCall(name, body));
+    } else if (method == "resources/list") {
+        handleResourcesList(id);
+    } else if (method == "resources/read") {
+        handleResourcesRead(id, body);
+    } else if (method == "resources/subscribe" || method == "resources/unsubscribe") {
+        // plain-POST transport can't push; clients use resources/poll instead.
+        jsonResult(id, "{}");
+    } else if (method == "resources/poll") {          // pragmatic extension
+        handleResourcesPoll(id, body);
+    } else if (method == "prompts/list") {
+        handlePromptsList(id);
+    } else if (method == "prompts/get") {
+        handlePromptsGet(id, body);
     } else if (method == "ping") {
         jsonResult(id, "{}");
     } else {

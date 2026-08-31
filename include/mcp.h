@@ -31,5 +31,6 @@ void setToken(const String& t); // override
 uint32_t totalCalls();          // lifetime JSON-RPC calls received
 bool everInitialized();         // an LLM has completed initialize at least once
 uint32_t lastInitAgoMs();       // ms since last initialize (0xFFFFFFFF = never)
+void resBump(const char* uri);  // Phase 2: mark a resource as changed (logLine/scripts)
 
 } // namespace mcp

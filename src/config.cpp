@@ -2,6 +2,7 @@
 // config.cpp - NVS-backed persistent settings + RAM debug log ring buffer
 // ============================================================================
 #include "config.h"
+#include "mcp.h"
 #include "crypt.h"
 #include "msc.h"
 #include "wifiattack.h"
@@ -103,6 +104,7 @@ void logLine(const String& s) {
     extern void wsEvent(const String&, const String&);
     String esc = entry; esc.replace("\\", "\\\\"); esc.replace("\"", "\\\\\"");
     wsEvent("log", "\"" + esc + "\"");
+    mcp::resBump("lilystrike://logs/system");   // Phase 2: resource version bump
     // Encrypted append to SD - but NEVER while the host owns the raw card
     // (USB_STORAGE/False Thumbdrive): concurrent FS access corrupts both.
     // No SD I/O while the radio is attacking/capturing (FS + radio don't
