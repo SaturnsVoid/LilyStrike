@@ -133,7 +133,7 @@ static String toolCall(const String& name, const String& body) {
     if (name == "device_status") {
         // Reuse the status JSON builder logic inline (compact subset)
         String s = "{";
-        s += "\"heap\":" + String(ESP.getFreeHeap()/1024) + "KB";
+        s += "\"heapKB\":" + String(ESP.getFreeHeap()/1024);   // BUGFIX: "heap":107KB was invalid JSON (unquoted unit)
         s += ",\"uptime_s\":" + String(millis()/1000);
         s += ",\"cpuMhz\":" + String(getCpuFrequencyMhz());
         s += ",\"usbHost\":" + String(g_state.usbHostPresent?"true":"false");
