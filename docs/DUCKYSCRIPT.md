@@ -229,29 +229,50 @@ DELAY 800
 BRUTEFORCE_PIN 4 200
 ```
 
-### 7. Modular payload (RUN_SCRIPT)
+### 7. Modular payload (RUN_SCRIPT) — *hardware-verified*
 
-`main.ds`:
+`demo-chain.ds` — runs your other saved scripts in order; each sub-script
+returns and this one resumes:
+
 ```
-DETECT_OS
-IF_OS windows
-  RUN_SCRIPT win_recon.ds
+REM demo-chain.ds - runs both of your saved scripts in order.
+SCREEN_CLR
+SCREEN_TEXT Chain starting
+RUN_SCRIPT hello_notepad.ds
+DELAY 1000
+RUN_SCRIPT light_show.ds
+SCREEN_CLR
+SCREEN_TEXT Chain done
+LED_ON #00FF00
+DELAY 2000
+LED_OFF
+```
+
+### 8. Target watchdog (GOTO) — *hardware-verified*
+
+`watchdog.ds` — forward jumps only, so it always terminates naturally:
+
+```
+REM watchdog.ds - green blink when the target AP is in range, red when not.
+SCREEN_CLR
+SCREEN_TEXT Watchdog running
+IF_SSID TMOBILE-33EB
+  GOTO found
 END_IF
-RUN_SCRIPT cleanup.ds
+LED_ON #FF0000
+SCREEN_TEXT Not in range
+DELAY 3000
+GOTO done
+LABEL found
+LED_BLINK 3 #00FF00
+SCREEN_TEXT In range
+DELAY 3000
+LABEL done
+LED_OFF
+SCREEN_CLR
 ```
-
-### 8. Simple patrol loop (GOTO)
-
-```
-LABEL top
-IF_SSID TargetCorp
-  LED_BLINK 3 #00FF00
-  LOG target in range
-END_IF
-DELAY 30000
-GOTO top
-```
-(Loop-guarded: 256 jumps max per run.)
+Backward-jump loops are possible but always end with `GOTO budget exceeded`
+after 256 iterations - use forward-jump patterns (shown) for clean exits.
 
 ### 9. Beacon flood
 
