@@ -23,6 +23,8 @@
 //            JIGGLE_MOUSE <secs>           -> subtle mouse motion
 //            CONNECT_AP <ssid> [password]  -> join network as station
 //            DISCON_AP [erase]             -> drop station link
+//            USB_SPOOF vid pid [mfr [prod]] -> USB identity, next boot
+//            REBOOT                        -> clean restart
 //            RESET_FIRM                    -> factory reset + reboot
 //   NOTE: SSID_SPAM and SCREEN_IMG deferred (Step 3 wifi-lowlevel / image
 //         loader work); unknown commands log an error but don't abort.
@@ -571,6 +573,37 @@ RunResult run(const String& scriptText, const String& name) {
             // sequence stays ordered
             while (wifiattack::attacking() && !g_stopRequested) delay(200);
             hw::screenOn();
+        }
+        else if (cmd.equalsIgnoreCase("USB_SPOOF"))     {
+            // USB_SPOOF <vid_hex> <pid_hex> [vendor [product]]
+            // Persists the USB identity for the NEXT boot - descriptors are
+            // read once at enumeration (USB.begin is called once per power-on).
+            unsigned vid=0, pid=0;
+            int sp2 = args.indexOf(' ');
+            String a1 = (sp2>0)?args.substring(0,sp2):args;
+            String rest = (sp2>0)?args.substring(sp2+1):String("");
+            vid = strtoul(a1.c_str(), nullptr, 16);
+            int sp3 = rest.indexOf(' ');
+            pid = strtoul((sp3>0?rest.substring(0,sp3):rest).c_str(), nullptr, 16);
+            if (sp3>0) rest = rest.substring(sp3+1);
+            if (!vid || !pid) {
+                res.error += "USB_SPOOF: need hex VID PID (e.g. 1234 5678) ";
+            } else {
+                int sp4 = rest.indexOf(' ');
+                String vendor = (sp4>0)?rest.substring(0,sp4):rest;
+                String product = (sp4>0)?rest.substring(sp4+1):String("");
+                vendor.trim(); product.trim();
+                spoof::set((uint16_t)vid, (uint16_t)pid, vendor, product, "");
+                spoof::save();
+                logLine("[script:" + name + "] USB_SPOOF " +
+                        String(vid, HEX) + ":" + String(pid, HEX) +
+                        " - applies at next boot/replug");
+            }
+        }
+        else if (cmd.equalsIgnoreCase("REBOOT"))        {
+            logLine("[script:" + name + "] REBOOT requested");
+            delay(300);
+            ESP.restart();
         }
         else if (cmd.equalsIgnoreCase("SSID_SPAM"))     {
             // SSID_SPAM <seconds> [name1,name2,...] - beacon flood; blocks;
