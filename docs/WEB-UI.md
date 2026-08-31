@@ -30,7 +30,8 @@ Three panels in one page:
 
 1. **WiFi Scanner** — AP+STA scan (~3 s): SSID, BSSID, channel, security badge, signal bars. Buttons per network hand the target to the Deauth or EvilAP pages pre-filled.
 2. **Live Packet Analyzer** — channel-hopping monitor mode. Device goes **offline** while running (single radio; AP returns automatically, max 2 min). Shows frame totals (mgmt/data/ctrl), the last frame decoded (type, source/dest MAC, length, RSSI), and an AP list with BSSID, channel, security, and signal. Results are saved encrypted and shown on reload.
-3. **Host Reconnaissance** — needs the device joined to a network (script `CONNECT_AP`): **ARP sweep** lists live hosts (IP + MAC); **port scan** probes one host (empty = top 25 ports, or comma list like `22,80,443`).
+3. **Hashcat export** — captures that caught WPA handshakes are auto-converted to **hashcat 22000** format (`.22000` next to the `.pcap`); `GET /api/pcap/hc22000?path=...` re-runs it on demand. Feed it to `hashcat -m 22000`.
+4. **Host Reconnaissance** — needs the device joined to a network (script `CONNECT_AP`): **ARP sweep** lists live hosts (IP + MAC); **port scan** probes one host (empty = top 25 ports, or comma list like `22,80,443`).
 
 ## Deauth
 
