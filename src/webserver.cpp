@@ -70,6 +70,7 @@
 #include "mcp.h"
 #include "wifiattack.h"
 #include "hostrecon.h"
+#include "hc22000.h"
 #include "version.h"
 
 static WebSrvShim server(80);                   // owns the AsyncWebServer; all 68
@@ -834,6 +835,23 @@ static void hPcapList() {
 // Restores everything except the kill switches, then reboots.
 static String jesc(String v) { v.replace("\\", "\\\\"); v.replace("\"", "\\\""); return v; }
 
+static void hPcap22000() {
+    requireAuth(); if (!isAuthed()) return;
+    String path = server.arg("path");
+    if (!path.length() || !path.endsWith(".pcap")) return jsonErr(400, "?path=/pcap/x.pcap");
+    String hc = hc::fromPcap(path);
+    if (!hc.length()) return jsonErr(404, "no handshake pairs found");
+    String out = path.substring(0, path.length() - 5) + ".22000";
+    {
+        sdLock();
+        File o = SD_MMC.open(out, FILE_WRITE);
+        if (o) { o.print(hc); o.close(); }
+        sdUnlock();
+    }
+    server.sendHeader("Cache-Control", "no-store");
+    server.send(200, "text/plain", hc);
+}
+
 static void hConfigExport() {
     requireAuth(); if (!isAuthed()) return;
     if (!strlen(cfg.encPassword))
@@ -1476,6 +1494,7 @@ void setupRoutes() {
     });
     server.on("/api/karma/probes", HTTP_GET, hKarmaProbes);
     server.on("/api/karma/spawn", HTTP_POST, hKarmaSpawn);
+    server.on("/api/pcap/hc22000", HTTP_GET, hPcap22000);
     server.on("/api/config/export", HTTP_POST, hConfigExport);
     server.on("/api/config/import", HTTP_POST, hConfigImport);
     server.on("/api/sched", HTTP_GET, hSchedGet);

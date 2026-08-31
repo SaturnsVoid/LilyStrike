@@ -22,6 +22,8 @@
 #include "hw.h"
 #include "util.h"
 #include "crypt.h"
+#include "hc22000.h"
+#include <algorithm>
 #include "ducky.h"
 #include <WiFi.h>
 #include <esp_wifi.h>
@@ -365,6 +367,7 @@ static inline bool isEapol(const uint8_t* p) {
     return (p[30]==0x88 && p[31]==0x8e) || (p[32]==0x88 && p[33]==0x8e);
 }
 
+static String s_pcapPath;   // path of the capture currently open
 static bool pcapOpen(const String& name) {
     if (SD_MMC.cardType() == CARD_NONE) return false;
     if (!SD_MMC.exists("/pcap")) SD_MMC.mkdir("/pcap");
@@ -372,6 +375,7 @@ static bool pcapOpen(const String& name) {
     String path;
     do { path = "/pcap/" + name + "_" + String(i++) + ".pcap"; }
     while (SD_MMC.exists(path));
+    s_pcapPath = path;
     s_pcap = SD_MMC.open(path, FILE_WRITE);
     if (!s_pcap) return false;
     // libpcap global header: LE magic a1b2c3d4, v2.4, snaplen 65535,
@@ -557,6 +561,18 @@ static void bcastTask(void*) {
 static void restoreWifi() {
     esp_wifi_set_promiscuous(false);
     pcapClose();
+    {   // auto-export hashcat 22000 if the capture caught handshakes
+        String hc = hc::fromPcap(s_pcapPath);
+        if (hc.length()) {
+            String out = s_pcapPath.substring(0, s_pcapPath.length() - 5) + ".22000";
+            sdLock();
+            File o = SD_MMC.open(out, FILE_WRITE);
+            if (o) { o.print(hc); o.close(); }
+            sdUnlock();
+            logLine("pcap: " + String(hc.length() ? "" : "") + out.substring(out.lastIndexOf('/')+1) +
+                    " written (" + String(std::count(hc.begin(), hc.end(), '\n')) + " hash(es))");
+        }
+    }
     WiFi.mode(WIFI_AP);
     WiFi.softAP(cfg.wifiSSID, cfg.wifiPass);
     g_state.bootBtnAbort = false;
@@ -780,6 +796,18 @@ bool startPcap(const String& name, uint8_t channel, uint32_t seconds) {
 
     esp_wifi_set_promiscuous(false);
     pcapClose();
+    {   // auto-export hashcat 22000 if the capture caught handshakes
+        String hc = hc::fromPcap(s_pcapPath);
+        if (hc.length()) {
+            String out = s_pcapPath.substring(0, s_pcapPath.length() - 5) + ".22000";
+            sdLock();
+            File o = SD_MMC.open(out, FILE_WRITE);
+            if (o) { o.print(hc); o.close(); }
+            sdUnlock();
+            logLine("pcap: " + String(hc.length() ? "" : "") + out.substring(out.lastIndexOf('/')+1) +
+                    " written (" + String(std::count(hc.begin(), hc.end(), '\n')) + " hash(es))");
+        }
+    }
     WiFi.mode(WIFI_AP);
     WiFi.softAP(cfg.wifiSSID, cfg.wifiPass);
     g_state.bootBtnAbort = false;
