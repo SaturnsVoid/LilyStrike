@@ -54,11 +54,14 @@ static void sweepTask(void*) {
         struct netif* nif = staNetif();
         if (nif) {
             IPAddress mine = WiFi.localIP();
-            // BUGFIX: lwIP addresses are NETWORK byte order. The old host-order
-            // construction sent every ARP to a byte-swapped IP (e.g. 5.12.168.192)
-            // so the sweep always found nothing. IPAddress's uint32_t conversion
-            // is already in lwIP's native order.
-            uint32_t base = (uint32_t)mine & 0xFFFFFF00UL;
+            // BUGFIX (round 2, verified by tcpdump): lwIP ip4_addr_t.addr is
+            // NETWORK byte order. IPAddress's uint32_t conversion is byte-
+            // REVERSED relative to that, so BOTH earlier attempts targeted
+            // garbage IPs (tcpdump showed "who-has 1.168.12.209"). Correct
+            // address for last octet L: keep the low 3 bytes of the converted
+            // IP and put L in the top byte.
+            uint32_t mineU32 = (uint32_t)mine;
+            uint32_t base = mineU32 & 0x00FFFFFFUL;
             uint8_t myLast = mine[3];
 
             // ALL etharp access runs on the tcpip thread (this lwIP build has
@@ -76,7 +79,7 @@ static void sweepTask(void*) {
                 for (int last = 1; last < 255; last++) {
                     if (last == m->myLast) continue;
                     ip4_addr_t dest;
-                    dest.addr = m->base | last;
+                    dest.addr = m->base | ((uint32_t)last << 24);
                     etharp_request(m->nif, &dest);
                     if ((last % 16) == 0) delay(2);
                 }
@@ -90,7 +93,7 @@ static void sweepTask(void*) {
                 for (int last = 1; last < 255; last++) {
                     if (last == m->myLast) continue;
                     ip4_addr_t dest;
-                    dest.addr = m->base | last;
+                    dest.addr = m->base | ((uint32_t)last << 24);
                     struct eth_addr* eth = nullptr;
                     const ip4_addr_t* ipret = nullptr;
                     if (etharp_find_addr(m->nif, &dest, &eth, &ipret) >= 0 && eth) {
@@ -105,7 +108,9 @@ static void sweepTask(void*) {
 
             for (int i = 0; i < ctx.n; i++) {
                 Host h;
-                h.ip = IPAddress(ctx.out[i].ip).toString();
+                uint32_t a = ctx.out[i].ip;
+                IPAddress ip(a & 0xFF, (a >> 8) & 0xFF, (a >> 16) & 0xFF, (a >> 24) & 0xFF);
+                h.ip = ip.toString();
                 h.mac = macStr(ctx.out[i].mac);
                 out.push_back(h);
             }
