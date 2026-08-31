@@ -1216,7 +1216,15 @@ function settingsView(){
   </div>
   </div>
   <div class="setcard" style="margin-top:14px;border-color:var(--err)">
-    <h3 style="color:var(--err)">${icon("bolt")} System / Danger Zone</h3>
+  <div class="setcard"><h3>${icon("gear")} Firmware Update (OTA)</h3>
+    <p class="desc">Flash a new firmware .bin over the air. The device writes it to the second app slot and reboots into it. If the new firmware crashes 3 times, safe mode rescues you — but pick builds carefully.</p>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input type="file" id="otaFile" accept=".bin" style="max-width:260px">
+      <button class="small primary" id="otaBtn" onclick="otaUpload()">Upload & flash</button>
+    </div>
+    <div id="otaProgress" class="muted" style="font-size:12px;margin-top:6px"></div>
+  </div>
+  <div class="setcard"><h3 style="color:var(--err)">${icon("bolt")} System / Danger Zone</h3>
     <p class="desc">Destructive operations. Self destruct wipes settings, web files, SD card AND the firmware itself — recovery only by re-flashing.</p>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <button class="danger" onclick="doReboot()">Reboot</button>
@@ -1286,6 +1294,23 @@ async function saveMac(){
 async function cfgExport(){
   const r=await jpost("/api/config/export",{});
   r.ok ? toast("Backup written to /backup.enc") : toast(r.error||"export failed","err");
+}
+async function otaUpload(){
+  const f=$("#otaFile").files[0];
+  if(!f) return toast("Choose a .bin file first","err");
+  if(!f.name.endsWith(".bin")) return toast("Not a .bin file","err");
+  const btn=$("#otaBtn"), prog=$("#otaProgress");
+  btn.disabled=true; prog.textContent="Flashing 0% - do not power off";
+  const xhr=new XMLHttpRequest();
+  xhr.open("POST","/api/ota");
+  xhr.upload.onprogress=e=>{ if(e.lengthComputable) prog.textContent=`Flashing ${(e.loaded/e.total*100).toFixed(0)}% - do not power off`; };
+  xhr.onload=()=>{
+    btn.disabled=false;
+    if(xhr.status===200){ prog.textContent="Flashed - device reboots in a moment"; toast("Firmware updated"); setTimeout(()=>location.reload(),8000); }
+    else { btn.disabled=false; prog.textContent=""; toast("OTA failed: "+xhr.responseText.substring(0,120),"err"); }
+  };
+  xhr.onerror=()=>{ btn.disabled=false; prog.textContent=""; toast("Upload failed","err"); };
+  xhr.send(f);
 }
 async function cfgImport(){
   if(!(await confirmModal("Restore config from /backup.enc?\nCurrent settings are overwritten and the device reboots.")))return;
