@@ -15,6 +15,7 @@
 #include <WiFi.h>
 #include "config.h"
 #include "hw.h"
+#include <esp_ota_ops.h>
 #include "pins.h"
 #include "ducky.h"
 #include "webserver.h"
@@ -112,7 +113,8 @@ void setup() {
     configLoad(g_state.safeMode);   // true = ignore NVS, use defaults
     if (g_state.safeMode)
         logLine("SAFE MODE: 3+ consecutive failed boots - running with DEFAULTS (your saved settings are untouched)");
-    logLine(String("boot: ") + FW_NAME + " v" + FW_VERSION);
+    logLine(String("boot: ") + FW_NAME + " v" + FW_VERSION +
+            " (partition: " + esp_ota_get_running_partition()->label + ")");
 
     msc::loadSettings();
     spoof::load();                 // read saved (or first-boot random) identity

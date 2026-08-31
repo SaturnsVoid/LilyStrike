@@ -57,6 +57,7 @@
 #include <Preferences.h>
 #include <esp_system.h>
 #include <esp32-hal.h>
+#include <esp_ota_ops.h>
 #include <mbedtls/base64.h>
 #include <ESPmDNS.h>
 #include <Update.h>
@@ -250,6 +251,7 @@ String buildStatusJson() {
          ",\"lockKeys\":\"" + detectos::lockState() + "\"" +
          ",\"scriptSince\":" + String((uint32_t)g_state.scriptStateSince) +
          ",\"fw\":\"" FW_VERSION "\",\"fwName\":\"" FW_NAME "\"" +
+         ",\"otaPart\":\"" + String(esp_ota_get_running_partition()->label) + "\"" +
          ",\"safeMode\":" + String(g_state.safeMode ? "true":"false") +
          ",\"mcpEnabled\":" + String(mcp::enabled() ? "true":"false") +
          ",\"mcpCalls\":" + String(mcp::totalCalls()) +
