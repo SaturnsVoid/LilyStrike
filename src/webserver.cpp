@@ -61,6 +61,7 @@
 #include <mbedtls/base64.h>
 #include <ESPmDNS.h>
 #include <Update.h>
+#include <esp_partition.h>
 #include "power.h"
 #include "detect_os.h"
 #include "sys.h"
@@ -167,6 +168,7 @@ static void jsonErr(int code, const String& msg) {
 static uint32_t s_last401Log = 0;
 static volatile bool s_otaReboot = false;   // set after a successful OTA write
 static bool s_otaActive = false;            // Update begun and streaming
+static volatile bool s_fsRemount = false;   // littlefs.bin written -> remount
 static void requireAuth() {
     if (isAuthed()) return;
     jsonErr(401, "unauthorized");
@@ -1428,6 +1430,11 @@ static uint32_t s_lastPush = 0;
 void handle() {
     if (!s_running) return;
     ws.cleanupClients();
+    if (s_fsRemount) {          // FS image written - remount the web files
+        s_fsRemount = false;
+        if (!LittleFS.begin(true)) logLine("fsota: LittleFS remount FAILED");
+        else logLine("fsota: LittleFS remounted");
+    }
     if (s_otaReboot) {          // OTA response flushed - now swap images
         s_otaReboot = false;
         delay(500);
@@ -1614,6 +1621,68 @@ void setupRoutes() {
         s_otaReboot = true;
     });
     server.raw().addHandler(ota);
+
+    // ---- Filesystem OTA: stream littlefs.bin into the SPIFFS partition ----
+    // Same trust model as /api/ota (session-gated, first-chunk auth). Writes
+    // RAW with esp_partition_write - LittleFS is unmounted for the duration
+    // and remounted from handle() after the response goes out.
+    auto* fsota = new AsyncCallbackWebHandler();
+    fsota->setUri("/api/fsota"); fsota->setMethod(HTTP_POST);
+    static const esp_partition_t* s_fsPart = nullptr;
+    static size_t s_fsWritten = 0;
+    static size_t s_fsTotal = 0;
+    static bool s_fsActive = false;
+    static uint32_t s_fsErasedUpTo = 0;
+    fsota->onBody([](AsyncWebServerRequest* r, uint8_t* d, size_t len, size_t index, size_t total) {
+        if (index == 0) {
+            logLine("fsota: first chunk total=" + String(total));
+            if (!r->hasHeader("Cookie")) { logLine("fsota: no cookie"); return; }
+            const AsyncWebHeader* h = r->getHeader("Cookie");
+            if (!h || !h->value().startsWith("sid=")) { logLine("fsota: no sid"); return; }
+            String tok = h->value().substring(4); int e = tok.indexOf(';');
+            if (e >= 0) tok = tok.substring(0, e); tok.trim();
+            if (!sessionActive(tok)) { logLine("fsota: bad session"); return; }
+            s_fsPart = esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
+                                                ESP_PARTITION_SUBTYPE_DATA_SPIFFS, "spiffs");
+            if (!s_fsPart) { logLine("fsota: no spiffs partition"); return; }
+            if (total == 0 || total > s_fsPart->size) { logLine("fsota: bad size"); return; }
+            LittleFS.end();                          // unmount before raw writes
+            s_fsErasedUpTo = 0;
+            s_fsActive = true; s_fsWritten = 0; s_fsTotal = total;
+            logLine("fsota: begin (" + String(total / 1024) + "KB into spiffs)");
+        }
+        if (!s_fsActive || !s_fsPart) return;
+        // LAZY SECTOR ERASE: a whole-partition erase blocks async_tcp for
+        // seconds (killed the connection + left the FS unmounted - field
+        // bug). Instead erase each 4KB sector just before it's written,
+        // keeping every individual block short enough for the stack.
+        uint32_t eraseTo = (uint32_t)(((s_fsWritten + len) + 4095) & ~4095UL);
+        if (eraseTo > s_fsPart->size) eraseTo = s_fsPart->size;
+        if (eraseTo > s_fsErasedUpTo) {
+            if (esp_partition_erase_range(s_fsPart, (int)s_fsErasedUpTo,
+                                          (int)(eraseTo - s_fsErasedUpTo)) != ESP_OK) {
+                logLine("fsota: erase FAILED at " + String(s_fsErasedUpTo));
+                s_fsActive = false;
+                return;
+            }
+            s_fsErasedUpTo = eraseTo;
+        }
+        if (esp_partition_write(s_fsPart, s_fsWritten, d, len) != ESP_OK) {
+            logLine("fsota: write FAILED at " + String(s_fsWritten));
+            s_fsActive = false;
+            return;
+        }
+        s_fsWritten += len;
+    });
+    fsota->onRequest([](AsyncWebServerRequest* r) {
+        bool active = s_fsActive;
+        s_fsActive = false;
+        logLine("fsota: end active=" + String(active ? 1 : 0) + " written=" + String(s_fsWritten));
+        if (!active) { r->send(500, "text/plain", "FS update not started (auth?)"); return; }
+        s_fsRemount = true;                          // remount from handle()
+        r->send(200, "application/json", "{\"ok\":true,\"written\":" + String(s_fsWritten) + "}");
+    });
+    server.raw().addHandler(fsota);
 
     server.onNotFound(hStatic);
 }

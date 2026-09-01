@@ -1240,6 +1240,10 @@ function settingsView(){
       <input type="file" id="otaFile" accept=".bin" style="max-width:260px">
       <button class="small primary" id="otaBtn" onclick="otaUpload()">Upload & flash</button>
     </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
+      <input type="file" id="fsFile" accept=".bin" style="max-width:260px">
+      <button class="small primary" id="fsBtn" onclick="fsUpload()">Upload web UI</button>
+    </div>
     <div id="otaProgress" class="muted" style="font-size:12px;margin-top:6px"></div>
   </div>
   <div class="setcard"><h3 style="color:var(--err)">${icon("bolt")} System / Danger Zone</h3>
@@ -1308,6 +1312,22 @@ async function saveMac(){
   _lastSys.macMode = mode; _lastSys.macCustom = custom;
   await jpost("/api/sys",{macMode:mode, macCustom:custom});
   toast("MAC saved — applies at next boot");
+}
+function fsUpload(){
+  const f=$("#fsFile").files[0];
+  if(!f) return toast("Choose the littlefs.bin file first","err");
+  const btn=$("#fsBtn"), prog=$("#otaProgress");
+  btn.disabled=true; prog.textContent="Uploading web UI 0% - do not power off";
+  const xhr=new XMLHttpRequest();
+  xhr.open("POST","/api/fsota");
+  xhr.upload.onprogress=e=>{ if(e.lengthComputable) prog.textContent=`Uploading web UI ${(e.loaded/e.total*100).toFixed(0)}%`; };
+  xhr.onload=()=>{
+    btn.disabled=false;
+    if(xhr.status===200){ prog.textContent="Web UI updated"; toast("Filesystem updated"); setTimeout(()=>location.reload(),1500); }
+    else { prog.textContent=""; toast("FS update failed: "+xhr.responseText.substring(0,120),"err"); }
+  };
+  xhr.onerror=()=>{ btn.disabled=false; prog.textContent=""; toast("Upload failed","err"); };
+  xhr.send(f);
 }
 async function cfgExport(){
   const r=await jpost("/api/config/export",{});
