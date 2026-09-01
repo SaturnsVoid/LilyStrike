@@ -23,9 +23,6 @@
 //            JIGGLE_MOUSE <secs>           -> subtle mouse motion
 //            CONNECT_AP <ssid> [password]  -> join network as station
 //            DISCON_AP [erase]             -> drop station link
-//            HID_USB|HID_BLE|HID_DUAL      -> HID transport (BLE = 'LilyStrike')
-//            MEDIA_PLAY|PAUSE|NEXT|PREV|VOLUP|VOLDOWN|MUTE -> media keys
-//            BLE_SPAM <secs> [mode]        -> pairing popup flood (see docs)
 //            USB_SPOOF vid pid [mfr [prod]] -> USB identity, next boot
 //            REBOOT                        -> clean restart
 //            RESET_FIRM                    -> factory reset + reboot
@@ -50,9 +47,6 @@
 #include <USB.h>
 #include <USBHIDKeyboard.h>
 #include <USBHIDMouse.h>
-#include <USBHIDConsumerControl.h>
-#include "blehid.h"
-extern const uint8_t KeyboardLayout_en_US[];
 #include <WiFi.h>
 #include <esp_random.h>
 #include <math.h>
@@ -91,52 +85,12 @@ std::vector<String> layoutNames() {
     for (auto& l : LAYOUTS) out.push_back(l.name);
     return out;
 }
-static const uint8_t* s_layout = KeyboardLayout_en_US;  // current layout table (BLE typing)
 void setLayout(const String& name) {
     for (auto& l : LAYOUTS)
-        if (name == l.name) { kb.begin(l.layout); s_layout = l.layout; logLine("layout: " + name); return; }
+        if (name == l.name) { kb.begin(l.layout); logLine("layout: " + name); return; }
 }
 
 static USBHIDMouse mouse;
-static USBHIDConsumerControl ccon;   // media keys (USB consumer page)
-
-// ---- HID transport target: 0=USB, 1=BLE, 2=dual (both radios) ----
-// BLE side: see blehid.cpp (NimBLE HOGP, Just Works pairing).
-static int g_hidTarget = 0;
-
-static void hidKbPress(uint8_t k) {
-    if (g_hidTarget == 0 || g_hidTarget == 2) hidKbPress(k);
-    if (g_hidTarget >= 1) blehid::kbPress(k);
-}
-static void hidKbRelease(uint8_t k) {
-    if (g_hidTarget == 0 || g_hidTarget == 2) hidKbRelease(k);
-    if (g_hidTarget >= 1) blehid::kbRelease(k);
-}
-static void hidKbReleaseAll() {
-    if (g_hidTarget == 0 || g_hidTarget == 2) hidKbReleaseAll();
-    if (g_hidTarget >= 1) blehid::kbReleaseAll();
-}
-static void hidKbWrite(uint8_t c) {
-    if (g_hidTarget == 0 || g_hidTarget == 2) hidKbWrite(c);
-    if (g_hidTarget >= 1) blehid::kbWriteChar((char)c, s_layout);
-}
-static void hidMousePress(uint8_t b) {
-    if (g_hidTarget == 0 || g_hidTarget == 2) hidMousePress(b);
-    if (g_hidTarget >= 1) blehid::mouseButtons(b);
-}
-static void hidMouseRelease(uint8_t b) {
-    if (g_hidTarget == 0 || g_hidTarget == 2) hidMouseRelease(b);
-    if (g_hidTarget >= 1) blehid::mouseButtons(0);
-}
-static void hidMouseMove(int8_t x, int8_t y, int8_t wheel = 0) {
-    if (g_hidTarget == 0 || g_hidTarget == 2) hidMouseMove(x, y, wheel);
-    if (g_hidTarget >= 1) blehid::mouseMove(x, y, wheel);
-}
-static void hidMedia(uint16_t usage) {
-    // media = consumer page: USBHIDConsumerControl on USB, HID report 3 on BLE
-    if (g_hidTarget == 0 || g_hidTarget == 2) { ccon.press(usage); delay(8); ccon.release(); }
-    if (g_hidTarget >= 1) blehid::media(usage);
-}
 static bool kbStarted = false;
 static volatile bool g_running = false;
 static bool s_wasStopped = false;   // set by stop(), read via wasStopped()
@@ -191,26 +145,26 @@ static void pressCombo(const String& args) {
         if (tok.length()) {
             uint8_t k;
             if (resolveKey(tok, k)) {
-                if (lookup(MODS, sizeof(MODS)/sizeof(MODS[0]), tok, k)) hidKbPress(k);
+                if (lookup(MODS, sizeof(MODS)/sizeof(MODS[0]), tok, k)) kb.press(k);
                 else taps.push_back(k);
             }
         }
         if (sp < 0) break;
         start = sp + 1;
     }
-    for (auto t : taps) { hidKbPress(t); delay(8); hidKbRelease(t); }
-    hidKbReleaseAll();
+    for (auto t : taps) { kb.press(t); delay(8); kb.release(t); }
+    kb.releaseAll();
     delay(100);   // host settle time after combos
 }
 
 static void typeString(const String& s) {
-    for (size_t i = 0; i < s.length(); i++) { hidKbWrite(s[i]); delay(5); }
+    for (size_t i = 0; i < s.length(); i++) { kb.write(s[i]); delay(5); }
 }
 
 // ~40 wpm with jitter - looks human, defeats keystroke-timing analysis.
 static void humanType(const String& s) {
     for (size_t i = 0; i < s.length(); i++) {
-        hidKbWrite(s[i]);
+        kb.write(s[i]);
         // base 120ms +/- up to 100ms jitter => roughly 35-45 wpm average
         delay(70 + esp_random() % 100);
     }
@@ -539,7 +493,7 @@ RunResult run(const String& scriptText, const String& name) {
         else if (cmd.equalsIgnoreCase("DEFAULTDELAY") ||
                  cmd.equalsIgnoreCase("DEFAULT_DELAY")) { defaultDelay = constrain(args.toInt(),0,60000); }
         else if (cmd.equalsIgnoreCase("STRING"))        { typeString(substValues(args)); }
-        else if (cmd.equalsIgnoreCase("STRINGLN"))      { typeString(substValues(args)); hidKbPress(KEY_RETURN); hidKbRelease(KEY_RETURN); }
+        else if (cmd.equalsIgnoreCase("STRINGLN"))      { typeString(substValues(args)); kb.press(KEY_RETURN); kb.release(KEY_RETURN); }
         else if (cmd.equalsIgnoreCase("LOG"))           { logLine("[script:" + name + "] " + substValues(args)); }
 
         // ---- Step 2 custom commands ----
@@ -590,7 +544,7 @@ RunResult run(const String& scriptText, const String& name) {
             int len = constrain(args.toInt(), 1, 256);
             const char* alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
             for (int c2 = 0; c2 < len; c2++) {
-                hidKbWrite(alphabet[esp_random() % (sizeof(alphabet)-1)]);
+                kb.write(alphabet[esp_random() % (sizeof(alphabet)-1)]);
                 delay(5);
             }
         }
@@ -598,7 +552,7 @@ RunResult run(const String& scriptText, const String& name) {
         else if (cmd.equalsIgnoreCase("DISABLE_CAPS"))  {
             // Detect host caps state and turn it off if on.
             if (detectos::capsOn()) {
-                hidKbPress(KEY_CAPS_LOCK); delay(20); hidKbRelease(KEY_CAPS_LOCK);
+                kb.press(KEY_CAPS_LOCK); delay(20); kb.release(KEY_CAPS_LOCK);
                 delay(150);
                 logLine("[script:" + name + "] DISABLE_CAPS: caps was on - disabled");
             } else {
@@ -650,37 +604,6 @@ RunResult run(const String& scriptText, const String& name) {
             logLine("[script:" + name + "] REBOOT requested");
             delay(300);
             ESP.restart();
-        }
-        else if (cmd.equalsIgnoreCase("HID_USB"))       { g_hidTarget = 0; logLine("[script:" + name + "] HID target: USB"); }
-        else if (cmd.equalsIgnoreCase("HID_BLE"))       {
-            g_hidTarget = 1;
-            blehid::begin();
-            logLine("[script:" + name + "] HID target: BLE (pair with 'LilyStrike')");
-        }
-        else if (cmd.equalsIgnoreCase("HID_DUAL"))      {
-            g_hidTarget = 2;
-            blehid::begin();
-            logLine("[script:" + name + "] HID target: USB+BLE");
-        }
-        else if (cmd.equalsIgnoreCase("MEDIA_PLAY"))    { hidMedia(MEDIA_PLAY); }
-        else if (cmd.equalsIgnoreCase("MEDIA_PAUSE"))   { hidMedia(MEDIA_PAUSE); }
-        else if (cmd.equalsIgnoreCase("MEDIA_NEXT"))    { hidMedia(MEDIA_NEXT); }
-        else if (cmd.equalsIgnoreCase("MEDIA_PREV"))    { hidMedia(MEDIA_PREV); }
-        else if (cmd.equalsIgnoreCase("MEDIA_VOLUP"))   { hidMedia(MEDIA_VOLUP); }
-        else if (cmd.equalsIgnoreCase("MEDIA_VOLDOWN")) { hidMedia(MEDIA_VOLDOWN); }
-        else if (cmd.equalsIgnoreCase("MEDIA_MUTE"))    { hidMedia(MEDIA_MUTE); }
-        else if (cmd.equalsIgnoreCase("BLE_SPAM"))      {
-            // BLE_SPAM <seconds> [mode 0=all|1=apple|2=windows|3=samsung]
-            // floods BLE advertisements that trigger pairing popups on
-            // nearby phones. AUTHORIZED USE ONLY.
-            int sp2 = args.indexOf(' ');
-            long secs = (sp2>0)?constrain(args.substring(0,sp2).toInt(),5,300):30;
-            uint8_t mode = (sp2>0)?constrain(args.substring(sp2+1).toInt(),0,3):0;
-            logLine("[script:" + name + "] BLE_SPAM " + String(secs) + "s mode " + String(mode));
-            hw::screenOff();
-            blehid::spamStart((uint32_t)secs, mode);
-            while (blehid::spamBusy() && !g_stopRequested) delay(200);
-            hw::screenOn();
         }
         else if (cmd.equalsIgnoreCase("SSID_SPAM"))     {
             // SSID_SPAM <seconds> [name1,name2,...] - beacon flood; blocks;
@@ -759,22 +682,22 @@ RunResult run(const String& scriptText, const String& name) {
             uint8_t k;
             if (!resolveKey(key, k)) { res.error += "HOLD_KEY: unknown key '"+key+"' "; }
             else {
-                hidKbPress(k);
-                if (ms > 0) { delay(ms); hidKbRelease(k); }
+                kb.press(k);
+                if (ms > 0) { delay(ms); kb.release(k); }
             }
         }
         else if (cmd.equalsIgnoreCase("RELEASE_KEY"))   {
             uint8_t k;
-            if (resolveKey(args, k)) hidKbRelease(k);
-            hidKbReleaseAll();   // safety: never leave stuck keys
+            if (resolveKey(args, k)) kb.release(k);
+            kb.releaseAll();   // safety: never leave stuck keys
         }
         else if (cmd.equalsIgnoreCase("MOUSE_CLICK"))   {
             String b = args; b.trim(); b.toLowerCase();
             if (b == "double") {
-                for (int c2=0;c2<2;c2++){ hidMousePress(MOUSE_LEFT); delay(15); hidMouseRelease(MOUSE_LEFT); delay(40); }
+                for (int c2=0;c2<2;c2++){ mouse.press(MOUSE_LEFT); delay(15); mouse.release(MOUSE_LEFT); delay(40); }
             } else {
                 uint8_t btn = (b=="right")?MOUSE_RIGHT:(b=="middle")?MOUSE_MIDDLE:MOUSE_LEFT;
-                hidMousePress(btn); delay(25); hidMouseRelease(btn);
+                mouse.press(btn); delay(25); mouse.release(btn);
             }
         }
         else if (cmd.equalsIgnoreCase("MOUSE_MOVE_SMOOTH")) {
@@ -790,7 +713,7 @@ RunResult run(const String& scriptText, const String& name) {
                 float t = (float)s2/steps;
                 float ease = t*t*(3-2*t);                  // smoothstep
                 int nx = (int)(tx*ease), ny = (int)(ty*ease);
-                hidMouseMove(nx-lastX, ny-lastY);
+                mouse.move(nx-lastX, ny-lastY);
                 lastX=nx; lastY=ny;
                 delay(ms/steps);
             }
@@ -847,7 +770,7 @@ RunResult run(const String& scriptText, const String& name) {
             long secs = constrain((long)(args.toFloat()), 1, 600);
             uint32_t end = millis() + secs * 1000;
             while (millis() < end && !g_stopRequested) {
-                hidMouseMove((int8_t)((esp_random()%3)-1), (int8_t)((esp_random()%3)-1));  // -1..1 px
+                mouse.move((esp_random()%3)-1, (esp_random()%3)-1);  // -1..1 px
                 delay(500);
             }
         }
@@ -923,11 +846,11 @@ RunResult run(const String& scriptText, const String& name) {
                 if (g_stopRequested) { res.ok = false; res.error = "stopped"; break; }
                 snprintf(buf, sizeof(buf), fmt.c_str(), pin);
                 typeString(buf);
-                hidKbPress(KEY_RETURN); hidKbRelease(KEY_RETURN);
+                kb.press(KEY_RETURN); kb.release(KEY_RETURN);
                 delay(delayMs);
                 // backspace over the typed code + ENTER for the next attempt
                 for (int b2 = 0; b2 < len+1; b2++) {
-                    hidKbPress(KEY_BACKSPACE); hidKbRelease(KEY_BACKSPACE); delay(10);
+                    kb.press(KEY_BACKSPACE); kb.release(KEY_BACKSPACE); delay(10);
                 }
                 if (pin % 100 == 0) logLine("[script:" + name + "] PIN " + String(pin));
             }
@@ -948,9 +871,9 @@ RunResult run(const String& scriptText, const String& name) {
                     String user = line.substring(0, sep);
                     String pass = line.substring(sep+1);
                     typeString(user); delay(100);
-                    hidKbPress(KEY_TAB); hidKbRelease(KEY_TAB); delay(100);
+                    kb.press(KEY_TAB); kb.release(KEY_TAB); delay(100);
                     typeString(pass); delay(100);
-                    hidKbPress(KEY_RETURN); hidKbRelease(KEY_RETURN);
+                    kb.press(KEY_RETURN); kb.release(KEY_RETURN);
                     delay(800);
                     logLine("[script:" + name + "] tried " + user);
                 }
@@ -1068,7 +991,6 @@ RunResult run(const String& scriptText, const String& name) {
 }
 
 void stop() { g_stopRequested = true; s_wasStopped = true; }
-void setHidTarget(int t) { g_hidTarget = constrain(t, 0, 2); }
 
 bool wasStopped() { return s_wasStopped; }
 
@@ -1081,7 +1003,6 @@ void initOnce() {
         if (msc::storageEnabled()) msc::beginCard(false);
         kb.begin();
         mouse.begin();
-        ccon.begin();
         USB.begin();       // single call - composite HID keyboard+mouse device
         kbStarted = true;
     }
@@ -1104,19 +1025,19 @@ void hidKey(const String& keyName, bool down) {
     uint8_t k;
     if (!resolveKey(keyName, k)) return;
     if (isModifierName(keyName)) return;   // use hidModifier for stickiness
-    if (down) hidKbPress(k); else hidKbRelease(k);
+    if (down) kb.press(k); else kb.release(k);
 }
 void hidModifier(const String& name, bool down) {
     uint8_t k;
     if (lookup(MODS, sizeof(MODS)/sizeof(MODS[0]), name, k))
-        down ? hidKbPress(k) : hidKbRelease(k);
+        down ? kb.press(k) : kb.release(k);
 }
-void hidMouseMove(int dx, int dy)      { hidMouseMove(dx, dy); }
+void hidMouseMove(int dx, int dy)      { mouse.move(dx, dy); }
 void hidMouseButton(const String& b, bool down) {
-    if      (b=="left")   down ? hidMousePress(MOUSE_LEFT)   : hidMouseRelease(MOUSE_LEFT);
-    else if (b=="right")  down ? hidMousePress(MOUSE_RIGHT)  : hidMouseRelease(MOUSE_RIGHT);
-    else if (b=="middle") down ? hidMousePress(MOUSE_MIDDLE) : hidMouseRelease(MOUSE_MIDDLE);
+    if      (b=="left")   down ? mouse.press(MOUSE_LEFT)   : mouse.release(MOUSE_LEFT);
+    else if (b=="right")  down ? mouse.press(MOUSE_RIGHT)  : mouse.release(MOUSE_RIGHT);
+    else if (b=="middle") down ? mouse.press(MOUSE_MIDDLE) : mouse.release(MOUSE_MIDDLE);
 }
-void hidMouseScroll(int clicks)        { hidMouseMove(0,0,clicks); }
+void hidMouseScroll(int clicks)        { mouse.move(0,0,clicks); }
 
 } // namespace ducky
