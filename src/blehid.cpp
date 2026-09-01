@@ -16,6 +16,9 @@
 #include "crypt.h"
 #include "util.h"
 #include <NimBLEDevice.h>
+#include <nimble/nimble_port.h>
+#include <nimble/nimble_port_freertos.h>
+#include <esp_nimble_hci.h>
 #include <WiFi.h>
 #include <NimBLEHIDDevice.h>
 #include <vector>
@@ -79,8 +82,7 @@ bool begin(bool wifiOff) {
         logLine("ble: wifi off (exclusive radio)");
     }
     if (!s_mtx) s_mtx = xSemaphoreCreateMutex();
-    logLine("ble: [1] nimble init");
-    NimBLEDevice::init("LilyStrike");
+    logLine("ble: [1] nimble init (free=" + String(ESP.getFreeHeap()) + ")");
     logLine("ble: [2] security");
     NimBLEDevice::setSecurityAuth(true, false, true);   // bonding, no MITM (Just Works), secure conn
     NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
