@@ -67,6 +67,7 @@ extern RuntimeState g_state;
 // Kept in RAM (last N lines) for the Status page AND appended encrypted to
 // /logs/system.log.enc on the SD card when it is mounted.
 #define LOG_LINES 40
-void logLine(const String& s);            // add to RAM ring + SD (encrypted)
+void logLine(const String& s);
+void logRestoreTail();                   // boot: SD log tail -> RAM ring (crash context)            // add to RAM ring + SD (encrypted)
 String logGetAll();                       // newline-joined RAM log for web UI
 void bootBtnAbortReset();                 // clear abort flag after handling

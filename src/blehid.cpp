@@ -16,6 +16,7 @@
 #include "crypt.h"
 #include "util.h"
 #include <NimBLEDevice.h>
+#include <WiFi.h>
 #include <NimBLEHIDDevice.h>
 #include <vector>
 #include <algorithm>
@@ -70,28 +71,44 @@ class SrvCb : public NimBLEServerCallbacks {
     }
 };
 
-bool begin() {
+bool begin(bool wifiOff) {
     if (s_host) return true;
+    // COEXIST TEST/DESIGN: if this build lacks WiFi+BT coexistence, starting
+    // the BT controller while WiFi is up crashes (field: dies inside
+    // NimBLEDevice::init). With wifiOff we take the radio exclusively -
+    // same single-radio model as the offline WiFi attacks.
+    if (wifiOff && WiFi.getMode() != WIFI_MODE_NULL) {
+        WiFi.mode(WIFI_OFF);
+        delay(100);
+        logLine("ble: wifi off (exclusive radio)");
+    }
     if (!s_mtx) s_mtx = xSemaphoreCreateMutex();
-    NimBLEDevice::init("LilyStrike");
+    logLine("ble: [1] nimble init");
+    if (!NimBLEDevice::init("LilyStrike")) { logLine("ble: [1] init FAILED"); return false; }
+    logLine("ble: [2] security");
     NimBLEDevice::setSecurityAuth(true, false, true);   // bonding, no MITM (Just Works), secure conn
     NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
+    logLine("ble: [3] server");
     NimBLEServer* srv = NimBLEDevice::createServer();
     srv->setCallbacks(new SrvCb());
+    logLine("ble: [4] hid device");
     s_hid = new NimBLEHIDDevice(srv);
+    logLine("ble: [5] report map");
     s_hid->setManufacturer("LilyStrike");
     s_hid->setPnp(0x02, 0x305A, 0xFFFF, 0x0100);
     s_hid->setReportMap((uint8_t*)REPORT_MAP, sizeof(REPORT_MAP));
+    logLine("ble: [6] characteristics");
     s_kbRep = s_hid->getInputReport(1);
     s_msRep = s_hid->getInputReport(2);
     s_ccRep = s_hid->getInputReport(3);
+    logLine("ble: [7] advertising");
     NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
     adv->setAppearance(0x03C1);            // HID keyboard
     adv->addServiceUUID(NimBLEUUID((uint16_t)0x1812));
     adv->start();
     s_host = true;
     s_conn = false;
-    logLine("ble: host up, advertising as keyboard");
+    logLine("ble: [8] host up, advertising as keyboard");
     return true;
 }
 
@@ -211,8 +228,10 @@ class ScanCb : public NimBLEScanCallbacks {
 
 // scan runs in a task (blocking scan can't live in the async_http task)
 static void scanTask(void* pv) {
-    uint32_t secs = (uint32_t)(uintptr_t)pv;
-    if (!begin()) { s_scan.busy = false; vTaskDelete(nullptr); return; }
+    uint32_t arg = (uint32_t)(uintptr_t)pv;
+    uint32_t secs = arg & 0xFFFF;
+    bool wifiOff = (arg >> 16) & 1;
+    if (!begin(wifiOff)) { s_scan.busy = false; vTaskDelete(nullptr); return; }
     NimBLEScan* scan = NimBLEDevice::getScan();
     scan->setScanCallbacks(new ScanCb(), false);
     scan->setActiveScan(true);
@@ -222,14 +241,16 @@ static void scanTask(void* pv) {
     lock(); s_scan.busy = false; unlock();
     logLine("ble: scan done (" + String(s_scan.devs.size()) + " devices)");
     deinit();
+    if (wifiOff) { WiFi.mode(WIFI_AP); WiFi.softAP(cfg.wifiSSID, cfg.wifiPass); }
     vTaskDelete(nullptr);
 }
 
-bool scanStart(uint32_t seconds) {
+bool scanStart(uint32_t seconds, bool wifiOff) {
     if (s_scan.busy) return false;
     s_scan.busy = true;
     lock(); s_scan.devs.clear(); unlock();
-    if (xTaskCreatePinnedToCore(scanTask, "blescan", 8192, (void*)(uintptr_t)seconds, 1, nullptr, 0) != pdPASS) {
+    uint32_t arg = (seconds & 0xFFFF) | (wifiOff ? (1UL << 16) : 0);
+    if (xTaskCreatePinnedToCore(scanTask, "blescan", 8192, (void*)(uintptr_t)arg, 1, nullptr, 0) != pdPASS) {
         s_scan.busy = false;
         return false;
     }

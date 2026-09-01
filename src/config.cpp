@@ -86,6 +86,36 @@ static String timeStr(time_t t) {
     return String(buf);
 }
 
+static void ringPush(const String& entry) {
+    if (!s_logMtx) s_logMtx = xSemaphoreCreateMutex();
+    xSemaphoreTake(s_logMtx, portMAX_DELAY);
+    s_ring[s_head] = entry;
+    s_head = (s_head + 1) % LOG_LINES;
+    if (s_count < LOG_LINES) s_count++;
+    xSemaphoreGive(s_logMtx);
+}
+
+void logRestoreTail() {
+    // Boot: pull the last lines of the encrypted SD log into the RAM ring so
+    // a crash's final moments survive the reboot (field: NimBLE init crash).
+    if (SD_MMC.cardType() == CARD_NONE) return;
+    String existing;
+    if (!decryptFromFile("/logs/system.log.enc", existing) || existing.length() < 5) return;
+    int nl = 0, cut = 0;
+    for (int i = existing.length() - 1; i >= 0; i--)
+        if (existing[i] == '\n' && ++nl >= 8) { cut = i + 1; break; }
+    String tail = existing.substring(cut);
+    int start = 0;
+    while (start < (int)tail.length()) {
+        int e = tail.indexOf('\n', start);
+        if (e < 0) e = tail.length();
+        String ln = tail.substring(start, e);
+        ln.trim();
+        if (ln.length()) ringPush(ln);
+        start = e + 1;
+    }
+}
+
 void logLine(const String& s) {
     if (!s_logMtx) s_logMtx = xSemaphoreCreateMutex();
     // absolute UTC timestamp once NTP has synced; relative seconds before that

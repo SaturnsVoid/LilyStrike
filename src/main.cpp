@@ -132,7 +132,9 @@ void setup() {
 
     // Hardware first: MSC (USB_STORAGE) needs the SD mounted before the
     // USB stack comes up, otherwise beginCard bails with "no SD".
-    if (!hw::initAll()) {
+    bool sdOk = hw::initAll();
+    logRestoreTail();   // crash context: pre-reboot log lines back in the ring
+    if (!sdOk) {
         // SD missing is non-fatal but note it on screen briefly
         hw::screenText("SD CARD ERROR");
     }

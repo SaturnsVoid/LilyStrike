@@ -859,9 +859,11 @@ static String jesc(String v) { v.replace("\\", "\\\\"); v.replace("\"", "\\\"");
 static void hBtScan() {
     requireAuth(); if (!isAuthed()) return;
     if (server.method() == HTTP_POST) {
-        long secs = extractJsonNum(server.arg("plain"), "secs", 20);
+        String body = server.arg("plain");
+        long secs = extractJsonNum(body, "secs", 20);
         secs = constrain(secs, 5, 120);
-        bool ok = blehid::scanStart((uint32_t)secs);
+        bool wifiOff = body.indexOf("\"wifiOff\":true") >= 0;
+        bool ok = blehid::scanStart((uint32_t)secs, wifiOff);
         json(ok ? 202 : 409, ok ? "{\"ok\":true,\"started\":true}" : "{\"ok\":false,\"error\":\"scan already running\"}");
         return;
     }
