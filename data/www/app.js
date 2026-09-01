@@ -38,6 +38,7 @@ const ICONS = {
   bolt:'<path d="M13 2 4.5 13.5H11L9.5 22 19.5 9.5H12.5L13 2Z" fill="currentColor"/>',
   os:'<rect x="3" y="4" width="18" height="12" rx="2" fill="currentColor"/><path d="M8 20h8l-1-3H9l-1 3Z" fill="currentColor"/>',
   script:'<path d="M6 2h8l4 4v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z" fill="currentColor"/><text x="8" y="17" font-size="9" fill="#fff" font-family="monospace">ds</text>',
+  bt:'<path d="M7 7l10 10-5 5V2l5 5L7 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>',
   // deauth: wifi arcs + cut slash (stroke) - distinct from tools' bolt
   deauth:'<path d="M8.5 16.4a5 5 0 0 1 7 0M5 12.9a10 10 0 0 1 5.3-2.8M19 12.9a10 10 0 0 0-2-1.6M2 8.8a16 16 0 0 1 6-3.2M22 8.8a16 16 0 0 0-6-3.2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><circle cx="12" cy="19.5" r="1.3" fill="currentColor"/><path d="M3 2l19 19" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>',
   // evilap: rogue antenna - mast + radiating arcs (stroke) - distinct from wifi
@@ -733,6 +734,75 @@ async function doPcap(){
 
 /* ============================ RECON VIEW ============================= */
 const TOP_PORTS = [80,443,22,445,3389,8080,8000,8443,21,23,25,53,110,143,993,995,1433,3306,5432,5900,6379,27017,9100,161,1900];
+
+/* =============================== RADIO (BLE) VIEW ========================= */
+function btView(){
+  clearInterval(scanTimer); clearInterval(anTimer);
+  view.innerHTML=`<div class="panel"><h2>${icon("bt")} BLE Scanner</h2>
+   <p class="muted">Passive+active Bluetooth advertisement scan: nearby phones, headphones, trackers with name/MAC/signal. Tracker heuristics flag Apple FindMy, Samsung SmartTag and Tile beacons.</p>
+   <button class="primary" id="btScanBtn" onclick="btScan()">Scan BLE (20s)</button>
+   <table id="btScanTable" style="margin-top:12px"></table></div>
+  <div class="panel"><h2>${icon("bt")} BLE Pairing Popup Spam</h2>
+   <p class="muted"><b style="color:var(--warn)">AUTHORIZED NETWORKS ONLY.</b> Floods Bluetooth advertisements that trigger pairing popups ("new device" / SwiftPair) on nearby phones and laptops. Mode: all rotates the three payloads.</p>
+   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+     <label>Seconds<input id="btSpamSecs" type="number" value="60" min="5" max="300" style="max-width:90px"></label>
+     <label>Mode<select id="btSpamMode"><option value="0">All (rotate)</option><option value="1">Apple popup</option><option value="2">Windows SwiftPair</option><option value="3">Samsung</option></select></label>
+     <button class="danger" id="btSpamBtn" onclick="btSpam()">Start spam</button>
+   </div>
+   <div id="btSpamState" class="muted" style="font-size:12px;margin-top:6px"></div></div>
+  <div class="panel"><h2>${icon("bt")} BLE HID Transport</h2>
+   <p class="muted">Which radio carries DuckyScript input. BLE advertises as <b class="mono">LilyStrike</b> (Just Works pairing - pair it from the target Bluetooth menu first). Dual types on both radios at once.</p>
+   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+     <button class="small" onclick="btHid('usb',this)">USB</button>
+     <button class="small primary" onclick="btHid('ble',this)">Bluetooth</button>
+     <button class="small" onclick="btHid('dual',this)">Dual (USB+BLE)</button>
+   </div>
+   <div id="btHidState" class="muted" style="font-size:12px;margin-top:6px"></div></div>`;
+  btStatusPoll();
+}
+async function btScan(){
+  const btn=$("#btScanBtn"), tbl=$("#btScanTable");
+  btn.disabled=true;
+  try{
+    const r=await jpost("/api/bt/scan",{secs:20});
+    if(!r.ok){ toast(r.error||"scan failed","err"); btn.disabled=false; return; }
+    while(true){
+      await new Promise(res=>setTimeout(res,1500));
+      const st=await api("/api/bt/scan");
+      btn.textContent=`Scanning ${st.progress}%...`;
+      if(!st.scanning){
+        btn.disabled=false; btn.textContent="Scan BLE (20s)";
+        tbl.innerHTML=st.devices.length
+          ? "<tr><th>Signal</th><th>Name</th><th>MAC</th><th>Type</th></tr>"+
+            st.devices.map(d=>`<tr><td>${d.rssi} dBm</td><td>${esc(d.name)}</td><td class="mono">${esc(d.mac)}</td><td>${d.kind?`<span class="badge warn">${esc(d.kind)}</span>`:"-"}</td></tr>`).join("")
+          : `<tr><td colspan="4" class="muted">No BLE devices found</td></tr>`;
+        toast(st.devices.length+" BLE device(s) found");
+        break;
+      }
+    }
+  }catch(e){ btn.disabled=false; toast("Scan failed","err"); }
+}
+async function btSpam(){
+  const secs=+$("#btSpamSecs").value||60, mode=+$("#btSpamMode").value;
+  const r=await jpost("/api/bt/spam",{secs,mode});
+  if(!r.ok) return toast(r.error||"failed","err");
+  $("#btSpamState").textContent=`Spamming for ${secs}s...`;
+  const p=setInterval(async()=>{
+    const s=await api("/api/bt/status");
+    if(!s.spam){ clearInterval(p); $("#btSpamState").textContent=""; toast("BLE spam finished"); }
+    else $("#btSpamState").textContent=`Spamming...`;
+  },1500);
+}
+async function btHid(mode,btn){
+  const txt={usb:"HID target: USB (next script)",ble:"HID target: Bluetooth - pair LilyStrike with the target first",dual:"HID target: dual (USB+BLE)"}[mode];
+  const r=await jpost("/api/hid/mode",{mode});
+  r.ok ? ($("#btHidState").textContent=txt, toast(txt)) : toast(r.error||"failed","err");
+}
+function btStatusPoll(){
+  api("/api/bt/status").then(s=>{
+    $("#btHidState").textContent=s.connected?"BLE host connected":(s.ready?"BLE host up, not connected":"BLE idle");
+  }).catch(()=>{});
+}
 
 /* ============================= WIFI SCAN VIEW ============================ */
 // Combined WiFi Tools: scanner + live analyzer + host recon.
@@ -1514,6 +1584,7 @@ function route(){
   if(h==="files")filesView();
   else if(h==="wifiscan")wifiscanView();
   else if(h==="deauth")deauthView();
+ else if(h==="bt")btView();
   else if(h==="control")controlView();
   else if(h==="evilap")evilapView();
   else if(h==="reference")refView();

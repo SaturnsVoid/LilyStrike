@@ -27,6 +27,7 @@ RunResult run(const String& scriptText, const String& name);
 
 // Ask the running script to abort (checked between every line).
 void stop();
+void setHidTarget(int t);        // 0=USB 1=BLE 2=dual (Radio tab / MCP)
 
 // Start USB HID stack once at boot. MUST be called before run().
 void initOnce();

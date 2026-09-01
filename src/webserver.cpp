@@ -73,6 +73,7 @@
 #include "wifiattack.h"
 #include "hostrecon.h"
 #include "hc22000.h"
+#include "blehid.h"
 #include "version.h"
 
 static WebSrvShim server(80);                   // owns the AsyncWebServer; all 68
@@ -855,6 +856,59 @@ static void hPcapList() {
 // Restores everything except the kill switches, then reboots.
 static String jesc(String v) { v.replace("\\", "\\\\"); v.replace("\"", "\\\""); return v; }
 
+static void hBtScan() {
+    requireAuth(); if (!isAuthed()) return;
+    if (server.method() == HTTP_POST) {
+        long secs = extractJsonNum(server.arg("plain"), "secs", 20);
+        secs = constrain(secs, 5, 120);
+        bool ok = blehid::scanStart((uint32_t)secs);
+        json(ok ? 202 : 409, ok ? "{\"ok\":true,\"started\":true}" : "{\"ok\":false,\"error\":\"scan already running\"}");
+        return;
+    }
+    bool sc = blehid::scanBusy();
+    String devs = "\"devices\":[";
+    if (!sc) {
+        auto v = blehid::scanResults();
+        bool first = true;
+        for (auto& d : v) {
+            if (!first) devs += ",";
+            first = false;
+            devs += "{\"mac\":\"" + d.mac + "\",\"name\":\"" + d.name + "\",\"kind\":\"" + d.kind + "\",\"rssi\":" + String(d.rssi) + "}";
+        }
+    }
+    devs += "]";
+    json(200, "{\"ok\":true,\"scanning\":" + String(sc ? "true" : "false") +
+              ",\"progress\":" + String(blehid::scanProgress()) + "," + devs + "}");
+}
+
+static void hBtSpam() {
+    requireAuth(); if (!isAuthed()) return;
+    String body = server.arg("plain");
+    bool stop = body.indexOf("\"stop\":true") >= 0;
+    if (stop) { blehid::spamStop(); return json(200, "{\"ok\":true,\"stopped\":true}"); }
+    long secs = extractJsonNum(body, "secs", 30);
+    long mode = extractJsonNum(body, "mode", 0);
+    bool ok = blehid::spamStart((uint32_t)constrain(secs, 5, 300), (uint8_t)constrain(mode, 0, 3));
+    json(ok ? 202 : 409, ok ? "{\"ok\":true,\"started\":true}" : "{\"ok\":false,\"error\":\"spam already running\"}");
+}
+
+static void hHidMode() {
+    requireAuth(); if (!isAuthed()) return;
+    String mode = "usb";
+    extractJsonStr(server.arg("plain"), "mode", mode);
+    int t = (mode == "ble") ? 1 : (mode == "dual") ? 2 : 0;
+    ducky::setHidTarget(t);
+    json(200, "{\"ok\":true,\"mode\":\"" + mode + "\"}");
+}
+
+static void hBtStatus() {
+    requireAuth(); if (!isAuthed()) return;
+    json(200, "{\"ready\":" + String(blehid::ready() ? "true" : "false") +
+              ",\"connected\":" + String(blehid::connected() ? "true" : "false") +
+              ",\"scanning\":" + String(blehid::scanBusy() ? "true" : "false") +
+              ",\"spam\":" + String(blehid::spamBusy() ? "true" : "false") + "}");
+}
+
 static void hPcap22000() {
     requireAuth(); if (!isAuthed()) return;
     String path = server.arg("path");
@@ -1520,6 +1574,11 @@ void setupRoutes() {
     });
     server.on("/api/karma/probes", HTTP_GET, hKarmaProbes);
     server.on("/api/karma/spawn", HTTP_POST, hKarmaSpawn);
+    server.on("/api/bt/scan", HTTP_POST, hBtScan);
+    server.on("/api/bt/scan", HTTP_GET, hBtScan);
+    server.on("/api/bt/spam", HTTP_POST, hBtSpam);
+    server.on("/api/bt/status", HTTP_GET, hBtStatus);
+    server.on("/api/hid/mode", HTTP_POST, hHidMode);
     server.on("/api/pcap/hc22000", HTTP_GET, hPcap22000);
     server.on("/api/config/export", HTTP_POST, hConfigExport);
     server.on("/api/config/import", HTTP_POST, hConfigImport);
