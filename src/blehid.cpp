@@ -67,6 +67,12 @@ class SrvCb : public NimBLEServerCallbacks {
 };
 
 bool begin(bool wifiOff) {
+    // TEMPORARY GATE: NimBLE host calls abort the device on this build
+    // combo (pioarduino core3 + NimBLE 1.4.3 AND 2.5.1, crash point varies
+    // inside host init/ctor). Needs UART/coredump debugging - see handoff.
+    // Everything else on the device is unaffected.
+    logLine("ble: DISABLED in this build (stability) - see project docs");
+    return false;
     if (s_host) return true;
     // COEXIST TEST/DESIGN: if this build lacks WiFi+BT coexistence, starting
     // the BT controller while WiFi is up crashes (field: dies inside

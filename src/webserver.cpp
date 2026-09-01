@@ -865,6 +865,7 @@ static void hBtScan() {
         secs = constrain(secs, 5, 120);
         bool wifiOff = body.indexOf("\"wifiOff\":true") >= 0;
         bool ok = blehid::scanStart((uint32_t)secs, wifiOff);
+        if (!ok && !blehid::scanBusy()) return jsonErr(503, "BLE disabled in this build (stability)");
         json(ok ? 202 : 409, ok ? "{\"ok\":true,\"started\":true}" : "{\"ok\":false,\"error\":\"scan already running\"}");
         return;
     }
