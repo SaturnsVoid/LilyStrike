@@ -85,8 +85,32 @@ bool initAll() {
     SD_MMC.setPins(SD_CLK_PIN, SD_CMD_PIN,
                    SD_D0_PIN, SD_D1_PIN, SD_D2_PIN, SD_D3_PIN);
     // May already be mounted (msc token-check mounts early) - don't fail on it.
-    if (SD_MMC.cardType() != CARD_NONE) sdOK = true;
-    else sdOK = SD_MMC.begin("/sdcard", true);   // mode1bit=false => 4-bit
+    if (SD_MMC.cardType() != CARD_NONE) {
+        sdOK = true;
+    } else {
+        // HARD-TIMEOUT MOUNT: a corrupt FAT card can hang SD_MMC.begin()
+        // inside the SDMMC driver forever, which boot-looped the whole
+        // device (field bug). Mount runs in a throwaway task; if it hasn't
+        // finished in 6s we kill it and boot WITHOUT the card - the device
+        // stays reachable and the card can be fixed on a PC.
+        struct SdMountCtx { bool done; bool ok; };
+        static SdMountCtx ctx; ctx = SdMountCtx{false, false};
+        TaskHandle_t th = nullptr;
+        if (xTaskCreatePinnedToCore([](void* p) {
+                auto* m = (SdMountCtx*)p;
+                m->ok = SD_MMC.begin("/sdcard", true);   // mode1bit=false => 4-bit
+                m->done = true;
+                vTaskDelete(nullptr);
+            }, "sdmount", 6144, &ctx, 1, &th, 0) == pdPASS) {
+            uint32_t t0 = millis();
+            while (!ctx.done && millis() - t0 < 6000) delay(10);
+            if (!ctx.done) {
+                if (th) vTaskDelete(th);   // kill the stuck mount
+                logLine("SD mount TIMEOUT - booting without card");
+                sdOK = false;
+            } else sdOK = ctx.ok;
+        }
+    }
     if (!sdOK) logLine("SD mount FAILED");
     else {
         if (!SD_MMC.exists("/scripts")) SD_MMC.mkdir("/scripts");

@@ -1632,6 +1632,7 @@ void setupRoutes() {
     static size_t s_fsWritten = 0;
     static size_t s_fsTotal = 0;
     static bool s_fsActive = false;
+    static uint32_t s_fsErasedUpTo = 0;
     fsota->onBody([](AsyncWebServerRequest* r, uint8_t* d, size_t len, size_t index, size_t total) {
         if (index == 0) {
             logLine("fsota: first chunk total=" + String(total));
@@ -1646,13 +1647,26 @@ void setupRoutes() {
             if (!s_fsPart) { logLine("fsota: no spiffs partition"); return; }
             if (total == 0 || total > s_fsPart->size) { logLine("fsota: bad size"); return; }
             LittleFS.end();                          // unmount before raw writes
-            if (esp_partition_erase_range(s_fsPart, 0, s_fsPart->size) != ESP_OK) {
-                logLine("fsota: erase failed"); return;
-            }
+            s_fsErasedUpTo = 0;
             s_fsActive = true; s_fsWritten = 0; s_fsTotal = total;
             logLine("fsota: begin (" + String(total / 1024) + "KB into spiffs)");
         }
         if (!s_fsActive || !s_fsPart) return;
+        // LAZY SECTOR ERASE: a whole-partition erase blocks async_tcp for
+        // seconds (killed the connection + left the FS unmounted - field
+        // bug). Instead erase each 4KB sector just before it's written,
+        // keeping every individual block short enough for the stack.
+        uint32_t eraseTo = (uint32_t)(((s_fsWritten + len) + 4095) & ~4095UL);
+        if (eraseTo > s_fsPart->size) eraseTo = s_fsPart->size;
+        if (eraseTo > s_fsErasedUpTo) {
+            if (esp_partition_erase_range(s_fsPart, (int)s_fsErasedUpTo,
+                                          (int)(eraseTo - s_fsErasedUpTo)) != ESP_OK) {
+                logLine("fsota: erase FAILED at " + String(s_fsErasedUpTo));
+                s_fsActive = false;
+                return;
+            }
+            s_fsErasedUpTo = eraseTo;
+        }
         if (esp_partition_write(s_fsPart, s_fsWritten, d, len) != ESP_OK) {
             logLine("fsota: write FAILED at " + String(s_fsWritten));
             s_fsActive = false;

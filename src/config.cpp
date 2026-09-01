@@ -120,7 +120,13 @@ void logLine(const String& s) {
         existing += entry + "\n";
         // Keep the file bounded (~32KB) - drop oldest half.
         if (existing.length() > 32768) existing = existing.substring(existing.length()/2);
-        encryptToFile("/logs/system.log.enc", existing);
+        // CRASH-SAFE WRITE: the log is the most frequent SD write, and a
+        // crash mid-write corrupts the FAT (field bug: boot loop). Write to
+        // a temp file and atomically rename over the target.
+        if (encryptToFile("/logs/system.log.tmp", existing)) {
+            SD_MMC.remove("/logs/system.log.enc");
+            SD_MMC.rename("/logs/system.log.tmp", "/logs/system.log.enc");
+        }
         sdUnlock();
     }
     Serial.println("[LOG] " + entry);
