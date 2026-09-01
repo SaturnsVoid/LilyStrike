@@ -11,7 +11,7 @@
 namespace blehid {
 
 // ---- lifecycle ----
-bool begin(bool wifiOff = false);  // start NimBLE host + HID (lazy; wifiOff = exclusive radio)
+bool begin(bool wifiOff = false, int stage = 5);  // stage 1-5 self-test bisect (5=full)
 void deinit();           // stop advertising + free the host
 bool ready();            // host initialized?
 bool connected();        // a BLE host (keyboard consumer) is paired+connected?
@@ -30,7 +30,7 @@ struct BleDev {
     String mac, name, kind;    // kind: "" | "Apple FindMy?" | "Samsung" | "Tile?"
     int rssi;
 };
-bool scanStart(uint32_t seconds, bool wifiOff = false);  // passive+active scan, background task
+bool scanStart(uint32_t seconds, bool wifiOff = false, int stage = 5);  // passive+active scan, background task
 bool scanBusy();
 uint32_t scanProgress();                // %
 std::vector<BleDev> scanResults();      // snapshot (sorted by RSSI)

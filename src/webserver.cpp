@@ -864,8 +864,10 @@ static void hBtScan() {
         long secs = extractJsonNum(body, "secs", 20);
         secs = constrain(secs, 5, 120);
         bool wifiOff = body.indexOf("\"wifiOff\":true") >= 0;
-        bool ok = blehid::scanStart((uint32_t)secs, wifiOff);
-        if (!ok && !blehid::scanBusy()) return jsonErr(503, "BLE disabled in this build (stability)");
+        int stage = (int)extractJsonNum(body, "stage", 5);
+        stage = constrain(stage, 1, 5);
+        bool ok = blehid::scanStart((uint32_t)secs, wifiOff, stage);
+        if (!ok) return jsonErr(409, blehid::scanBusy() ? "scan already running" : "BLE start failed");
         json(ok ? 202 : 409, ok ? "{\"ok\":true,\"started\":true}" : "{\"ok\":false,\"error\":\"scan already running\"}");
         return;
     }
