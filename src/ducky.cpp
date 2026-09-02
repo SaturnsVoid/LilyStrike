@@ -818,13 +818,25 @@ RunResult run(const String& scriptText, const String& name) {
             // USB_STORAGE enable|disable - toggles the SD-over-USB interface.
             String mode = args; mode.trim(); mode.toLowerCase();
             if (mode.startsWith("enable")) {
-                msc::setStorageEnabled(true);
-                logLine("USB_STORAGE enabled - re-enumerating");
-                delay(200); usb_persist_restart(RESTART_PERSIST);
+                // IDEMPOTENT: the state change requires a full reboot
+                // (usb_persist_restart = esp_restart). Skip it when the
+                // state already matches so scripts can call this every run:
+                // run 1 preps (device reboots), run 2 proceeds to the payload.
+                if (msc::storageEnabled()) {
+                    logLine("USB_STORAGE already enabled - drive active");
+                } else {
+                    msc::setStorageEnabled(true);
+                    logLine("USB_STORAGE enabled - re-enumerating (device restarts)");
+                    delay(200); usb_persist_restart(RESTART_PERSIST);
+                }
             } else if (mode.startsWith("disable")) {
-                msc::setStorageEnabled(false);
-                logLine("USB_STORAGE disabled - re-enumerating");
-                delay(200); usb_persist_restart(RESTART_PERSIST);
+                if (!msc::storageEnabled()) {
+                    logLine("USB_STORAGE already disabled");
+                } else {
+                    msc::setStorageEnabled(false);
+                    logLine("USB_STORAGE disabled - re-enumerating (device restarts)");
+                    delay(200); usb_persist_restart(RESTART_PERSIST);
+                }
             } else if (mode.startsWith("readonly")) {
                 msc::setStorageEnabled(true);
                 logLine("USB_STORAGE readonly set - applies next plug-in");

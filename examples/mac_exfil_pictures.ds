@@ -1,6 +1,8 @@
 REM ============================================================
 REM macOS: exfil Pictures (jpg/png/heic) + Documents to the dongle
-REM REQUIRES: USB_STORAGE enabled (issued below). Card mounts at
+REM TWO-RUN FLOW: run 1 enables USB storage and the DEVICE REBOOTS
+REM (that is normal - the USB descriptor only changes at boot). Run the
+REM script a SECOND time: the enable becomes a no-op and the copy runs. Card mounts at
 REM /Volumes/DISK. Copied into /Volumes/DISK/exfil.
 REM AUTHORIZED USE ONLY.
 REM ============================================================
@@ -19,4 +21,5 @@ DELAY 400
 LED_BLINK 5 #FFD600
 SCREEN_TEXT exfil done #FFD600
 LOG mac_exfil_pictures: copy issued
+REM Optional cleanup - run when done (device reboots):
 REM USB_STORAGE disable
