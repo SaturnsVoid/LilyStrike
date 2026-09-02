@@ -302,16 +302,99 @@ static void hFormatSD() {
 }
 
 // ---- scripts ---------------------------------------------------------------
-static String metaPath(const String& name) { return "/scripts/" + name + ".meta"; }
-static String readMeta(const String& name) {
+// Script descriptions are NOT secret - they live in a PLAINTEXT index
+// (/scripts/index.json) instead of encrypted per-script sidecars. The old
+// encrypted .meta files forced PBKDF2+AES inside every /api/scripts call,
+// which runs in the async_tcp task: heavy crypto there overflowed its
+// stack and hard-crashed the device on every login (the Script Studio
+// lists scripts right after login).
+static String metaIndexLoad() {
+    sdLock();
+    File f = SD_MMC.open("/scripts/index.json", FILE_READ);
     String j;
-    if (!decryptFromFile(metaPath(name).c_str(), j)) return "{}";
-    return j;
+    if (f) { j = f.readString(); f.close(); }
+    sdUnlock();
+    return j.length() ? j : String("{}");
 }
-static void writeMeta(const String& name, const String& desc, const String& layout) {
-    if (!desc.length() && !layout.length()) { SD_MMC.remove(metaPath(name).c_str()); return; }
-    String j = "{\"desc\":\"" + desc + "\",\"layout\":\"" + layout + "\"}";
-    encryptToFile(metaPath(name).c_str(), j);
+static void metaIndexSave(const String& j) {
+    sdLock();
+    SD_MMC.remove("/scripts/index.json");
+    File f = SD_MMC.open("/scripts/index.json", FILE_WRITE);
+    if (f) { f.print(j); f.close(); }
+    sdUnlock();
+}
+// One-time migration: old encrypted .meta sidecars -> plaintext index.
+// Runs at web::begin (loop task) where crypto is safe - never in the
+// async_tcp task.
+static void metaIndexMigrate() {
+    if (!hw::sdMount() || SD_MMC.exists("/scripts/index.json")) return;
+    String idx = "{";
+    bool first = true;
+    File dir = SD_MMC.open("/scripts");
+    if (dir && dir.isDirectory()) {
+        File f;
+        while ((f = dir.openNextFile())) {
+            String fn = String(f.name());
+            if (!f.isDirectory() && fn.endsWith(".meta")) {
+                String base = fn; base.remove(base.length() - 5);   // strip .meta
+                String j;
+                if (decryptFromFile(("/scripts/" + fn).c_str(), j) && j.length()) {
+                    String desc, layout;
+                    extractJsonStr(j, "desc", desc);
+                    extractJsonStr(j, "layout", layout);
+                    if (!first) idx += ",";
+                    first = false;
+                    idx += "\"" + base + "\":{\"desc\":\"" + desc + "\",\"layout\":\"" +
+                           (layout.length() ? layout : String("en_US")) + "\"}";
+                }
+                SD_MMC.remove(("/scripts/" + fn).c_str());
+            }
+            f.close();
+        }
+    }
+    idx += "}";
+    metaIndexSave(idx);
+    logLine("scripts: migrated metadata to index.json");
+}
+// desc+layout lookup for one script (plaintext, async-safe)
+static void metaGet(const String& name, String& desc, String& layout) {
+    String j = metaIndexLoad();
+    desc = ""; layout = "";
+    // entry format: "name":{"desc":"...","layout":"..."}
+    int p = j.indexOf("\"" + name + "\":");
+    if (p >= 0) {
+        String entry = j.substring(p);
+        int e = entry.indexOf("}");   // end of this entry (desc has no })
+        if (e > 0) entry = entry.substring(0, e);
+        extractJsonStr(entry, "desc", desc);
+        extractJsonStr(entry, "layout", layout);
+        if (desc.length() > 60) desc = desc.substring(0, 60);
+    }
+    if (!layout.length()) layout = "en_US";
+}
+static void metaSet(const String& name, const String& desc, const String& layout) {
+    String j = metaIndexLoad();
+    // strip existing entry for name
+    String key = "\"" + name + "\":";
+    int p = j.indexOf(key);
+    if (p >= 0) {
+        int depth = 0, i = p + key.length() - 1;
+        for (; i < (int)j.length(); i++) {
+            if (j[i] == '{') depth++;
+            else if (j[i] == '}') { depth--; if (!depth) break; }
+        }
+        if (i + 1 < (int)j.length() && j[i+1] == ',') i++;   // eat trailing comma
+        j = j.substring(0, p) + j.substring(i + 1);
+        // avoid ,} and {,
+        j.replace(",}", "}"); j.replace("{,", "{");
+    }
+    if (desc.length() || layout.length()) {
+        String entry = "\"" + name + "\":{\"desc\":\"" + desc + "\",\"layout\":\"" +
+                       (layout.length() ? layout : String("en_US")) + "\"}";
+        if (j.length() <= 2) j = "{" + entry + "}";
+        else { j = j.substring(0, j.length() - 1) + (j.length() > 2 ? "," : "") + entry + "}"; }
+    }
+    metaIndexSave(j);
 }
 
 static String sanitizeName(const String& n) {
@@ -334,10 +417,8 @@ static void hScriptsList() {
             if (!f.isDirectory()) {
                 if (!first) out += ",";
                 first = false;
-                String meta = readMeta(String(f.name()));
-                String desc;
-                extractJsonStr(meta, "desc", desc);
-                if (desc.length() > 60) desc = desc.substring(0, 60);
+                String desc, mlayout;
+                metaGet(String(f.name()), desc, mlayout);
                 out += "{\"name\":\"" + String(f.name()) + "\",\"size\":" + String(f.size()) +
                        ",\"desc\":\"" + desc + "\"}";
             }
@@ -375,7 +456,7 @@ static void hScriptDelete() {
     String name = sanitizeName(server.arg("name"));
     bool ok = SD_MMC.remove(("/scripts/" + name).c_str());
     // meta sidecar (description + layout) dies with its script
-    if (ok) SD_MMC.remove(metaPath(name).c_str());
+    if (ok) { metaSet(name, "", ""); metaIndexSave(metaIndexLoad()); }
     mcp::resBump("lilystrike://scripts");   // resource list changed
     json(ok ? 200 : 500, String("{\"ok\":") + (ok ? "true" : "false") + "}");
 }
@@ -419,11 +500,10 @@ static void runScriptTask(void* pv) {
 }
 
 static void startRun(const String& text, const String& name) {
-    // Per-script keyboard layout (meta sidecar), applied before typing starts.
-    String meta = readMeta(name);
-    String layout;
-    extractJsonStr(meta, "layout", layout);
-    if (layout.length()) ducky::setLayout(layout);
+    // Per-script keyboard layout (plaintext index), applied before typing starts.
+    String sdesc, mlayout;
+    metaGet(name, sdesc, mlayout);
+    if (mlayout.length()) ducky::setLayout(mlayout);
     auto* p = new std::pair<String,String>(text, name);
     xTaskCreatePinnedToCore(runScriptTask, "ducky", 8192, p, 1, nullptr, 0);
 }
@@ -1021,12 +1101,8 @@ static void hWifiScan() {
 static void hScriptMetaGet() {
     requireAuth(); if (!isAuthed()) return;
     String name = sanitizeName(server.arg("name"));
-    String meta = readMeta(name);
-    String desc="0", layout;   // desc default empty
-    desc = "";
-    extractJsonStr(meta, "desc", desc);
-    extractJsonStr(meta, "layout", layout);
-    if (!layout.length()) layout = "en_US";
+    String desc, layout;
+    metaGet(name, desc, layout);
     json(200, "{\"desc\":\"" + desc + "\",\"layout\":\"" + layout + "\"}");
 }
 static void hScriptMetaSet() {
@@ -1037,7 +1113,7 @@ static void hScriptMetaSet() {
     if (desc.length() > 60) desc = desc.substring(0, 60);   // hard limit
     extractJsonStr(body, "layout", layout);
     name = sanitizeName(name);
-    writeMeta(name, desc, layout);
+    metaSet(name, desc, layout);
     json(200, "{\"ok\":true}");
 }
 static void hLayouts() {
@@ -1503,6 +1579,7 @@ void setupRoutes() {
     server.on("/api/layouts", HTTP_GET, hLayouts);
     server.on("/api/mcptoken", HTTP_GET, hMcpTokenGet);
     server.on("/api/mcptoken", HTTP_POST, hMcpTokenSet);
+    metaIndexMigrate();   // one-time: encrypted .meta sidecars -> plaintext index (loop task, crypto-safe)
     mcp::begin();
     server.on("/api/deauth/start", HTTP_POST, hDeauthStart);
     server.on("/api/deauth/stop", HTTP_POST, hDeauthStop);
