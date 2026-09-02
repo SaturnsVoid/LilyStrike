@@ -1207,7 +1207,7 @@ function settingsView(){
     <label>Custom MAC (AA:BB:CC:DD:EE:FF)<input id="macCustom" placeholder="02:AB:CD:EF:11:22" onchange="saveMac()"></label>
   </div>
   <div class="setcard"><h3>${icon("wifi")} External Access (Tunnel)</h3>
-    <p class="desc">Reach this device's interface from outside its network via a relay. Host <b class="mono">tools/relay_server.py</b> on any VPS, then point the device here. Browser: <b class="mono">http://relay/t/&lt;token&gt;/</b></p>
+    <p class="desc">Reach this device's interface from outside its network via a relay. Run <b class="mono">tools/relay_server.py</b> on any VPS, then point the device here. Browser: <b class="mono">http://relay/t/&lt;token&gt;/</b></p>
     <label>Relay URL<input id="tunnelUrl" placeholder="http://my-vps:5000" onchange="saveTunnel()"></label>
     <label>Token (auto-generated; override if you like)<input id="tunnelToken" onchange="saveTunnel()"></label>
     <label><input type="checkbox" id="tunnelEnabled" style="width:auto" onchange="saveTunnel()"> Enable tunnel when on an internet network</label>
@@ -1311,7 +1311,7 @@ async function saveMac(){
   if (_lastSys.macMode === mode && _lastSys.macCustom === custom) return;
   _lastSys.macMode = mode; _lastSys.macCustom = custom;
   await jpost("/api/sys",{macMode:mode, macCustom:custom});
-  toast("MAC saved — applies at next boot");
+  toast("MAC saved - applies at next boot");
 }
 function fsUpload(){
   const f=$("#fsFile").files[0];
@@ -1390,7 +1390,7 @@ async function saveSpoof(){
   await jpost("/api/spoof",{vid:$("#spoofVid").value,pid:$("#spoofPid").value,
     vendor:$("#spoofVendor").value,product:$("#spoofProduct").value,serial:$("#spoofSerial").value});
   await jpost("/api/spoof",{randomPerBoot:$("#spoofRandBoot").checked});
-  toast("Identity saved — applies on next boot/plug-in");
+  toast("Identity saved - applies on next boot/plug-in");
 }
 async function randomSpoof(){
   await jpost("/api/spoof",{randomize:true});
