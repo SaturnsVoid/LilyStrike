@@ -139,20 +139,28 @@ void logLine(const String& s) {
     // (USB_STORAGE/False Thumbdrive): concurrent FS access corrupts both.
     // No SD I/O while the radio is attacking/capturing (FS + radio don't
     // mix well during TX bursts) or while MSC owns the card.
-    if (!msc::active() && !wifiattack::busy() && SD_MMC.cardType() != CARD_NONE) {
-        // Atomic read-modify-write: two tasks logging simultaneously could
-        // interleave decrypt/encrypt and corrupt the log (or deadlock the
-        // card). One lock span for the whole update.
+    // BATCHED SD PERSISTENCE: rewriting the whole encrypted log per line
+    // hammered the card (decrypt+encrypt+write of ~32KB per LOG LINE) and
+    // accelerated a marginal card's death (two corruptions in a day).
+    // Buffer pending lines and flush to SD at most once per 5 s (or when
+    // 12 lines accumulate). The RAM ring is always current regardless.
+    static String s_pend;            // lines not yet persisted
+    static uint32_t s_lastFlush = 0;
+    s_pend += entry + "\n";
+    bool due = (millis() - s_lastFlush) > 5000 || s_pend.length() > 1200;
+    if (due && !msc::active() && !wifiattack::busy() && SD_MMC.cardType() != CARD_NONE) {
+        s_lastFlush = millis();
         extern void sdLock(), sdUnlock();
+        String batch = s_pend;
+        s_pend = "";
         sdLock();
         String existing;
         decryptFromFile("/logs/system.log.enc", existing);   // empty ok (new/corrupt)
-        existing += entry + "\n";
+        existing += batch;
         // Keep the file bounded (~32KB) - drop oldest half.
         if (existing.length() > 32768) existing = existing.substring(existing.length()/2);
-        // CRASH-SAFE WRITE: the log is the most frequent SD write, and a
-        // crash mid-write corrupts the FAT (field bug: boot loop). Write to
-        // a temp file and atomically rename over the target.
+        // CRASH-SAFE WRITE: a crash mid-write corrupts the FAT (field bug:
+        // boot loop). Write to a temp file and atomically rename over it.
         if (encryptToFile("/logs/system.log.tmp", existing)) {
             SD_MMC.remove("/logs/system.log.enc");
             SD_MMC.rename("/logs/system.log.tmp", "/logs/system.log.enc");
