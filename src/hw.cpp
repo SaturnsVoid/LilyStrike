@@ -221,7 +221,22 @@ bool sdWipe() {
 
 // ---------------------------------------------------------------------------
 bool sdMount() { return sdOK; }
-uint64_t sdUsedBytes()  { if (!sdOK) return 0; sdLock(); uint64_t v = (uint64_t)(SD_MMC.totalBytes() - SD_MMC.usedBytes()); sdUnlock(); return v; }
-uint64_t sdTotalBytes() { if (!sdOK) return 0; sdLock(); uint64_t v = SD_MMC.totalBytes(); sdUnlock(); return v; }
+// SD_MMC.totalBytes()/usedBytes() overflow 32-bit math on cards >4GB
+// (8GB card reported as 3580MB - the size mod 4GB). esp_vfs_fat_info()
+// returns proper uint64 values.
+#include "esp_vfs_fat.h"
+uint64_t sdTotalBytes() {
+    if (!sdOK) return 0;
+    uint64_t total = 0, freeB = 0;
+    esp_vfs_fat_info("/sdcard", &total, &freeB);
+    return total;
+}
+uint64_t sdFreeBytes() {
+    if (!sdOK) return 0;
+    uint64_t total = 0, freeB = 0;
+    esp_vfs_fat_info("/sdcard", &total, &freeB);
+    return freeB;
+}
+uint64_t sdUsedBytes()  { return sdTotalBytes() - sdFreeBytes(); }
 
 } // namespace hw

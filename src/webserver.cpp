@@ -240,8 +240,8 @@ String buildStatusJson() {
          ",\"cpuMhz\":" + String(getCpuFrequencyMhz()) +
          ",\"uptime\":" + String(millis() / 1000) +
          ",\"flashSize\":" + String(ESP.getFlashChipSize()) +
-         ",\"sdTotal\":" + String((uint32_t)hw::sdTotalBytes()) +
-         ",\"sdFree\":" + String((uint32_t)(hw::sdTotalBytes() ? (hw::sdTotalBytes()-SD_MMC.usedBytes()) : 0)) +
+         ",\"sdTotal\":" + String(hw::sdTotalBytes()) +
+         ",\"sdFree\":" + String(hw::sdFreeBytes()) +
          ",\"usbHost\":" + String(g_state.usbHostPresent ? "true" : "false") +
          ",\"wifiClients\":" + String(WiFi.softAPgetStationNum()) +
          ",\"ip\":\"" + web::localIP() + "\"" +

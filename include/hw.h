@@ -40,6 +40,7 @@ bool buttonWait(uint32_t timeoutMs);
 // ---- SD helpers -----------------------------------------------------------
 bool sdMount();                     // true if /sd is usable
 uint64_t sdUsedBytes();
+uint64_t sdFreeBytes();
 uint64_t sdTotalBytes();
 bool sdWipe();          // delete everything on SD, recreate folder structure
 } // namespace hw
