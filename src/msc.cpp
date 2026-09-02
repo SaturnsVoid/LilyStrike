@@ -287,8 +287,9 @@ void beginCard(bool readOnly) {
     msc.isWritable(!readOnly);
     msc.begin(sectors, LBA);
     s_active = true;
+    // 64-bit math: sectors*LBA overflows uint32 on >4GB cards ("3600 MB" for 8GB)
     logLine(String("MSC: card exposed ") + (readOnly ? "READ-ONLY" : "read-write") +
-            " (" + String(sectors * LBA / 1048576) + " MB)");
+            " (" + String((uint64_t)sectors * LBA / 1048576) + " MB)");
 }
 
 } // namespace msc
