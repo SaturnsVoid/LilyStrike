@@ -3,7 +3,7 @@
    Theme via [data-theme] on <html>; persisted in localStorage.
    Purple accent, system font stack (no webfonts - device is offline).
    ==========================================================================*/
-/* WifiPhisher-inspired palette: near-black + terminal green + glow */
+/* Palette: near-black + terminal green + glow */
 :root, [data-theme="dark"]{
   --bg:#0f0f0f; --bg2:#141414; --panel:#1e1e1e; --panel2:#252525;
   --text:#e0e0e0; --muted:#6c757d; --accent:#00e676; --accent2:#69f0ae;
@@ -251,7 +251,7 @@ pre.example{background:var(--code-bg);border:1px solid var(--border);border-radi
 .login-card h2{font-size:18px;margin-bottom:4px}
 .login-card p{font-size:13px;margin-top:0}
 
-/* WifiPhisher-style accents: glowing brand + green terminal highlights */
+/* Accents: glowing brand + green terminal highlights */
 #brand .bname{text-shadow:var(--glow)}
 #brand svg{filter:drop-shadow(0 0 6px rgba(0,230,118,.5))}
 button.primary,.btn.primary{box-shadow:none}

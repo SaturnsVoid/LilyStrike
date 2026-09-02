@@ -1541,7 +1541,7 @@ api("/api/status").then(s=>{
 }).catch(()=>{});
 const FW_FOOT="LilyStrike — for authorized testing only";
 
-/* ---- WebSocket live link (WifiPhisher-style push) ----
+/* ---- WebSocket live link (push) ----
    The device pushes {"e":"status","d":{...}} every 2s and {"e":"log","d":"..."}
    on every log line. Replaces most polling; REST stays as fallback. */
 let ws=null, wsBackoff=1000, lastStatus=null;

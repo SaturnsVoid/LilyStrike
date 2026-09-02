@@ -131,7 +131,7 @@ ProjectCodename/
 
 - **Platform:** pioarduino fork of platform-espressif32 (stock `espressif32` is frozen at an old core — do not switch).
 - **USB mode:** `ARDUINO_USB_MODE=0` (TinyUSB) is required for HID; `CDC_ON_BOOT=0` because the TinyUSB stack is owned by the keyboard.
-- **Raw WiFi TX:** the deauth/PCAP stack overrides a symbol in the WiFi library with `-Wl,-zmuldefs` (brute32 technique). Don't remove that flag.
+- **Raw WiFi TX:** the deauth/PCAP stack overrides a symbol in the WiFi library with `-Wl,-zmuldefs`. Don't remove that flag.
 - Key libraries: AsyncTCP + ESPAsyncWebServer (mathieucarbou), ArduinoJson, Adafruit ST7735, pololu APA102.
 
 ## License / disclaimer

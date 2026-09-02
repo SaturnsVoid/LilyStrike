@@ -74,7 +74,7 @@ bool initAll() {
     // Always init + clear GRAM at boot even if screen stays "off", otherwise
     // whatever garbage is in RAM shows when backlight comes on later.
     // INITR_MINI160x80_PLUGIN = colstart 26 / rowstart 1 - the offsets this
-    // exact panel needs (confirmed against USBArmyKnife's Panel_ST7735S
+    // exact panel needs (confirmed against the panel's
     // config: offset_x=26, offset_y=1). BLACKTAB writes off-screen => static.
     tft->initR(INITR_MINI160x80_PLUGIN);
     tft->setRotation(3);                 // landscape matching dongle shell
@@ -133,7 +133,7 @@ void screenOn() {
         backlightPWM = true;
     }
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
-    // NOTE: this panel's backlight is INVERTED (USBArmyKnife's LovyanGFX
+    // NOTE: this panel's backlight is INVERTED (early LovyanGFX
     // config sets cfg.invert=true). Duty 255 = off, 0 = full blast.
     ledcWrite(PIN_NUM_BCKL, 255 - cfg.screenBrightness);
 #else

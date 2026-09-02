@@ -15,7 +15,7 @@
 #include <sdmmc_cmd.h>
 
 // Reaches the protected sdmmc_card_t* inside SDMMCFS by subclassing with an
-// IDENTICAL layout (adds methods only) - same technique USBArmyKnife uses.
+// IDENTICAL layout (adds methods only) - driver-table technique.
 // This lets the MSC callbacks use sdmmc_read/write_sectors: the native
 // multi-sector driver, far more reliable than per-sector SD_MMC.readRAW.
 namespace fs {
@@ -104,7 +104,7 @@ bool shouldBootAsThumbdrive() {
 // Stealth drive: an innocent FAT16 image FILE built on the card. The victim
 // sees a small drive containing ONLY disk.zip - our real files (scripts,
 // logs, creds) are not on that filesystem at all and physically unreachable
-// (LUN is read-only). Same isolation technique USBArmyKnife's mountDiskImage
+// (LUN is read-only). The disk image is mounted isolated so the host
 // uses. Image layout: 4MB, 512B sectors, 4-sector clusters, 2 FATs.
 // ---------------------------------------------------------------------------
 static const char* IMG_PATH = "/disk.img";

@@ -97,7 +97,7 @@ static void ringPush(const String& entry) {
 
 void logRestoreTail() {
     // Boot: pull the last lines of the encrypted SD log into the RAM ring so
-    // a crash's final moments survive the reboot (field: NimBLE init crash).
+    // a crash's final moments survive the reboot.
     if (SD_MMC.cardType() == CARD_NONE) return;
     String existing;
     if (!decryptFromFile("/logs/system.log.enc", existing) || existing.length() < 5) return;

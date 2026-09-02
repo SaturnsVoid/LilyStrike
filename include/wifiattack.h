@@ -1,8 +1,7 @@
 // ============================================================================
 // wifiattack.h - WiFi deauth + handshake/PCAP capture (Step 3b)
 // ----------------------------------------------------------------------------
-// Techniques after studying four reference implementations (brute32,
-// applejuice, Marauder, WifiPhisher). The WifiPhisher approach won:
+// Techniques proven on ESP32-S3 hardware:
 //   * deauth frames transmit via WIFI_IF_STA (not AP!)
 //   * channel lockout via esp_wifi_remain_on_channel (ROC) on the STA
 //   * reason code 0x07 (Class 3 from nonassociated STA)

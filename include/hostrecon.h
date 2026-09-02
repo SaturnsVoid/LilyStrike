@@ -3,7 +3,7 @@
 // ----------------------------------------------------------------------------
 // Works when the device is a client on a target network (CONNECT_AP).
 //  * ARP sweep: lwIP etharp_request across the /24, live hosts' IP+MAC from
-//    the ARP table (WifiPhisher scanner.c technique - no raw sockets).
+//    the ARP table (lwIP etharp API - no raw sockets).
 //  * TCP port scan: connect()-based; SYN scan would need raw lwIP access.
 // ============================================================================
 #pragma once

@@ -77,7 +77,7 @@
 
 static WebSrvShim server(80);                   // owns the AsyncWebServer; all 68
                                                 // handlers compile untouched
-static AsyncWebSocket ws("/ws");                // live event push (WifiPhisher-style)
+static AsyncWebSocket ws("/ws");                // live event push
 // MULTI-SESSION: a single global token meant every login (second tab,
 // another device, an operator's curl test) instantly invalidated every other
 // session - users got "logged out" minutes after login for no visible reason.
@@ -1194,8 +1194,7 @@ static void hDevScreen() {
 }
 
 // Binary upload: POST /api/filebin?path=/x  body {"b64":"<base64>"}
-// The old multipart streaming handler crashed the device; small files are
-// fine to buffer whole and this path is deterministic.
+// Buffered whole (small files) - deterministic, no streaming edge cases.
 static void hFileBin() {
     requireAuth(); if (!isAuthed()) return;
     String path = server.arg("path");
@@ -1318,9 +1317,9 @@ static void hIndex() {
     serveWWW("/index.html");
 }
 static void hLoginHtml() {
-    // Nuke stale browser cache entries for this origin (pre-migration pages
-    // heuristically cached without no-cache headers kept resurrecting old
-    // UI versions client-side). Clear-Site-Data wipes on receipt - Chrome/FF.
+    // Nuke stale browser cache entries for this origin (older pages were
+    // cached without no-cache headers and could resurrect outdated UI
+    // client-side). Clear-Site-Data wipes on receipt - Chrome/FF.
     server.sendHeader("Clear-Site-Data", "\"cache\"");
     serveWWW("/login.html");
 }

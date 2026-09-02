@@ -76,7 +76,7 @@ the LLM through reading the right resources first.
 ## Example: curl
 
 ```bash
-TOKEN=[REDACTED]
+TOKEN=<your-mcp-token>   # Settings -> MCP shows the current token
 DEV=192.168.4.1
 
 # enumerate tools
@@ -106,7 +106,7 @@ curl -s -X POST http://$DEV/mcp \\
     "lilystrike": {
       "command": "npx",
       "args": ["-y", "mcp-remote", "http://192.168.4.1/mcp",
-               "--header", "X-MCP-Token: [REDACTED]"]
+               "--header", "X-MCP-Token: <your-mcp-token>"]
     }
   }
 }

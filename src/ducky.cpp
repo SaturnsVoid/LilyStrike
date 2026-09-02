@@ -239,8 +239,7 @@ static String getVar(const String& name) {
 
 // Replace value-command occurrences with their values.
 // Parameterised forms consume their arguments ("RANDOM_CHAR 12" -> 12 chars),
-// so nothing leaks through as literal text (the old whole-token-only version
-// turned "STRING RANDOM_CHAR 12" into "<char> 12").
+// so nothing leaks through as literal text.
 static String substValues(const String& s) {
     // split into whitespace tokens
     std::vector<String> toks;

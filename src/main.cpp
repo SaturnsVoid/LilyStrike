@@ -55,9 +55,9 @@ static void plugInTask(void* pv) {
         decryptFromFile(("/scripts/" + n).c_str(), text);
         if (text.length()) ducky::run(text, n);
         else logLine("autostart: cannot read/decrypt " + n);
-        // BUGFIX: old check `if (!ducky::isRunning()) break;` fired after the
-        // FIRST script FINISHED (isRunning false) and killed the chain. Only
-        // a user-initiated stop should abort the remaining scripts.
+        // Only a user-initiated stop may abort the chain here: checking
+        // isRunning() would see false after each script finished and kill
+        // the remaining autostart entries.
         if (ducky::wasStopped()) {
             logLine("autostart: chain aborted by stop");
             break;
@@ -88,8 +88,8 @@ static void applyMacSpoof() {
     } else return;
     // Arduino WiFi only EXPOSES getters - the real setter is the IDF base
     // MAC, which must be applied before the radio starts. AP derives from
-    // base+1 automatically. (Calling WiFi.macAddress(mac) was a GETTER - the
-    // old code silently did nothing.)
+    // base+1 automatically. Note: WiFi.macAddress() is a getter - only
+    // esp_base_mac_addr_set() changes the address.
     esp_base_mac_addr_set(mac);
     logLine("MAC spoofed: " + WiFi.macAddress());
 }

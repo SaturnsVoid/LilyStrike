@@ -185,7 +185,7 @@ static void IRAM_ATTR karmaSniffCb(void* buf, wifi_promiscuous_pkt_type_t type) 
 bool karmaProbing() { return s_karmaProbing; }
 
 // DESIGN DECISION (user-approved): probing runs OFFLINE with direct channel
-// hopping (Marauder/WifiPhisher style) - single radio can't serve the AP.
+// hopping - a single radio can't serve the AP while flooding.
 // Management AP returns when probing stops. UI reviews the probe list after.
 static volatile bool s_karmaRun = false;
 static void karmaHopTask(void*) {

@@ -1,7 +1,7 @@
 // ============================================================================
 // hostrecon.cpp - ARP sweep + TCP connect port scan (see hostrecon.h)
 // ----------------------------------------------------------------------------
-// ARP sweep technique from WifiPhisher networking/scanner.c: batch
+// ARP sweep via lwIP's etharp API: batch
 // etharp_request() broadcasts, wait, then read lwIP's ARP table via
 // etharp_find_addr(). Runs entirely inside lwIP - no raw sockets needed.
 // Port scan: lwip_connect() with short timeouts per port (TCP connect scan).
@@ -19,7 +19,7 @@
 #include <vector>
 #include <algorithm>
 
-// Resolve the STA lwIP netif the WifiPhisher way - netif_default can be the
+// Resolve the STA lwIP netif explicitly - netif_default can be the
 // AP netif in AP+STA mode, and calling etharp against the wrong netif is
 // what reset the device. (definition inside namespace hostrecon below)
 namespace hostrecon {

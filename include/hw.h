@@ -15,7 +15,7 @@ namespace hw {
 bool initAll();
 
 // ---- LED (APA102) ---------------------------------------------------------
-// Uses the Pololu APA102 library - the same driver USBArmyKnife uses on this
+// Uses the Pololu APA102 library - proven reliable on this
 // exact board, so pin mapping + timing are proven. (My hand-rolled bit-bang
 // produced no visible frame updates on this hardware.)
 void ledSet(const RGB& c);          // set + show
