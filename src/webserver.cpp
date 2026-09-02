@@ -411,9 +411,10 @@ static void hScriptsList() {
         bool first = true;
         File f;
         while ((f = dir.openNextFile())) {
-            // Hide .meta sidecars (desc+layout metadata, not user scripts)
+            // Only user scripts belong here: .ds files. Hides the plaintext
+            // index.json (metadata store) and any stray sidecars.
             String fn = String(f.name());
-            if (!f.isDirectory() && fn.endsWith(".meta")) { f.close(); continue; }
+            if (!f.isDirectory() && !fn.endsWith(".ds")) { f.close(); continue; }
             if (!f.isDirectory()) {
                 if (!first) out += ",";
                 first = false;
