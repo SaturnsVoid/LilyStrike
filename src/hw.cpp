@@ -93,19 +93,22 @@ bool initAll() {
         // device (field bug). Mount runs in a throwaway task; if it hasn't
         // finished in 6s we kill it and boot WITHOUT the card - the device
         // stays reachable and the card can be fixed on a PC.
-        struct SdMountCtx { bool done; bool ok; };
+        struct SdMountCtx { volatile bool done; bool ok; };
         static SdMountCtx ctx; ctx = SdMountCtx{false, false};
-        TaskHandle_t th = nullptr;
         if (xTaskCreatePinnedToCore([](void* p) {
                 auto* m = (SdMountCtx*)p;
                 m->ok = SD_MMC.begin("/sdcard", true);   // mode1bit=false => 4-bit
                 m->done = true;
                 vTaskDelete(nullptr);
-            }, "sdmount", 6144, &ctx, 1, &th, 0) == pdPASS) {
+            }, "sdmount", 6144, &ctx, 1, nullptr, 0) == pdPASS) {
             uint32_t t0 = millis();
             while (!ctx.done && millis() - t0 < 6000) delay(10);
             if (!ctx.done) {
-                if (th) vTaskDelete(th);   // kill the stuck mount
+                // ABANDON, do NOT kill: a mount stuck inside the SDMMC driver
+                // leaves DMA/IRQ state dirty if deleted mid-transaction (field:
+                // crash-loop at AsyncTCP bring-up with a corrupt card). The
+                // hung task just parks forever on its 6KB stack; cardType()
+                // stays NONE so every later SD op fails fast and harmlessly.
                 logLine("SD mount TIMEOUT - booting without card");
                 sdOK = false;
             } else sdOK = ctx.ok;
