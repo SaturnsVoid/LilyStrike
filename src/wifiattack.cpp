@@ -343,11 +343,12 @@ static void bufAppend(const uint8_t* data, uint16_t len) {
     if (!s_buf) {
         uint32_t us = micros();
         uint32_t secs = us / 1000000, usec = us % 1000000;
+        uint32_t l32 = len;
         uint8_t rec[16];
         memcpy(rec, &secs, 4);
         memcpy(rec+4, &usec, 4);
-        memcpy(rec+8, &len, 4);
-        memcpy(rec+12, &len, 4);
+        memcpy(rec+8, &l32, 4);
+        memcpy(rec+12, &l32, 4);
         s_pcap.write(rec, 16);
         s_pcap.write(data, len);
         s_stats.captured++;
@@ -365,11 +366,12 @@ static void bufAppend(const uint8_t* data, uint16_t len) {
     if (s_bufUsed + 16 + len > s_bufCap) return;   // still won't fit -> drop
     uint32_t us = micros();
     uint32_t secs = us / 1000000, usec = us % 1000000;
+    uint32_t l32 = len;
     uint8_t rec[16];
     memcpy(rec, &secs, 4);
     memcpy(rec+4, &usec, 4);
-    memcpy(rec+8, &len, 4);
-    memcpy(rec+12, &len, 4);
+    memcpy(rec+8, &l32, 4);
+    memcpy(rec+12, &l32, 4);
     memcpy(s_buf + s_bufUsed, rec, 16);
     memcpy(s_buf + s_bufUsed + 16, data, len);
     s_bufUsed += 16 + len;
