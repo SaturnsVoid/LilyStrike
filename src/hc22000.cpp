@@ -100,7 +100,11 @@ String fromPcap(const String& path) {
         keyInfo = (key[1] << 8) | key[2];
         const uint8_t* nonce = key + 5 + 8;                  // key[13..44]
         const uint8_t* mic   = key + 5 + 8 + 32 + 16 + 8 + 8; // key[77..92]
-        bool ack = keyInfo & 0x0080, hasMic = keyInfo & 0x0100;
+        // 802.11i Key Information bits: bit8 (0x0100)=KEY_ACK, bit9
+        // (0x0200)=KEY_MIC, bit10 (0x0400)=SECURE. The old 0x0080/0x0100
+        // constants were INSTALL/ACK - no real handshake ever classified.
+        bool ack = keyInfo & 0x0100, hasMic = keyInfo & 0x0200;
+        bool secure = keyInfo & 0x0400;
 
         if (ack && !hasMic) {                                // M1: remember ANonce
             bool upd = false;
@@ -114,7 +118,7 @@ String fromPcap(const String& path) {
             }
             continue;
         }
-        if (!ack && hasMic) {                                // M2: pair with M1
+        if (!ack && hasMic && !secure) {                     // M2: pair with M1 (M4 has SECURE too)
             for (auto& m : m1s) {
                 if (!macEq(m.bssid, bss) || !macEq(m.sta, sta)) continue;
                 String essid = "";
