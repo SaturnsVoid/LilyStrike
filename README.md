@@ -144,4 +144,4 @@ ProjectCodename/
 
 ## License / disclaimer
 
-Provided for **lawful security research and education**. No warranty. The authors accept no liability for misuse. Check your local laws — possession of dual-use tooling is regulated in some jurisdictions.
+MIT licensed — see [`LICENSE`](LICENSE) (includes a responsible-use addendum). Provided for **lawful security research and education** on systems you own or have written permission to test. No warranty. The authors accept no liability for misuse. Check your local laws — possession of dual-use tooling is regulated in some jurisdictions.
