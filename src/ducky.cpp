@@ -146,7 +146,14 @@ static void pressCombo(const String& args) {
             uint8_t k;
             if (resolveKey(tok, k)) {
                 if (lookup(MODS, sizeof(MODS)/sizeof(MODS[0]), tok, k)) kb.press(k);
-                else taps.push_back(k);
+                else {
+                    // Tap keys lowercase: press() auto-injects SHIFT for
+                    // uppercase ASCII ("CTRL ALT T" became Ctrl+Alt+Shift+T
+                    // on the host - an unbound combo). Capitalization intent
+                    // comes from the explicit SHIFT token, not the letter.
+                    if (tok.length() == 1) tok.toLowerCase();
+                    if (resolveKey(tok, k)) taps.push_back(k);
+                }
             }
         }
         if (sp < 0) break;
