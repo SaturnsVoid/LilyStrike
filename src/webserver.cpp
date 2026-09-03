@@ -604,12 +604,10 @@ static void hFileGet() {
         server.sendHeader("Cache-Control", "no-cache");
         return server.send(200, "text/plain", txt);
     }
-    sdLock();
-    f = SD_MMC.open(path, FILE_READ);
-    if (!f) { sdUnlock(); return jsonErr(404, "not found"); }
-    server.streamFile(f, "application/octet-stream");
-    f.close();
-    sdUnlock();
+    // Binary-safe: stream via the FS-based response (chunked, no String).
+    // The old String-buffered path truncated at the first NUL byte (PCAP
+    // header has \0 at offset 5 -> 5-byte downloads).
+    sendFSFile(SD_MMC, path, "application/octet-stream");
 }
 
 static void hFileSave() {
