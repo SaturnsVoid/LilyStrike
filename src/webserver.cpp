@@ -607,7 +607,7 @@ static void hFileGet() {
     // Binary-safe: stream via the FS-based response (chunked, no String).
     // The old String-buffered path truncated at the first NUL byte (PCAP
     // header has \0 at offset 5 -> 5-byte downloads).
-    sendFSFile(SD_MMC, path, "application/octet-stream");
+    server.sendFSFile(SD_MMC, path, "application/octet-stream");
 }
 
 static void hFileSave() {
