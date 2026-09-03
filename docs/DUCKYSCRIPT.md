@@ -139,7 +139,7 @@ Value commands can feed variables too: `RANDOM_NUM 1000 9999` types a number —
 
 | Command | Description |
 |---|---|
-| `USB_STORAGE enable\|disable` | Expose/remove the SD card as a USB mass-storage drive |
+| `USB_STORAGE enable\|disable` | Expose/remove the SD card as a USB mass-storage drive. **Restarts the device** (descriptor changes at boot); safe to call again after - it's a no-op once the state matches |
 | `USB_SPOOF <vid> <pid> [mfr [product]]` | Set the USB identity (hex VID/PID + strings). Applies at next boot — descriptors are read once at enumeration |
 | `REBOOT` | Clean restart (e.g. after `USB_SPOOF` to apply the new identity) |
 | `BRUTEFORCE_PIN <len> [delayMs]` | Types numeric codes of the given length (0000, 0001, …) with delay between |

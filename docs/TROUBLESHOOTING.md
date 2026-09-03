@@ -47,6 +47,7 @@
 | Scripts list empty but card has files | Encryption password mismatch (files written under a different password decrypt to nothing). |
 | Uploaded file corrupt | Use `/api/filebin` (the Files page does) for binary; the text editor path normalizes line endings. |
 | Card asks to be formatted by the host while MSC enabled | MSC gives the host raw access — disable USB_STORAGE before using the web file manager. |
+| Device restarts when a script runs `USB_STORAGE enable/disable` | Normal, not a crash: the USB descriptor (keyboard vs keyboard+drive) only changes at boot. The script stops at that line; run it again - the second run proceeds (the enable is a no-op the second time). |
 | Device boot-loops (web UI never comes up, USB keeps re-connecting every few seconds) | Likely a corrupted card hanging the SD mount at boot. Remove the microSD and power on — if it boots, reformat the card (FAT32) and restore your files. The device is designed to run without a card. |
 
 ## MCP / AI
