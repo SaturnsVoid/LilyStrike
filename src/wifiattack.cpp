@@ -336,15 +336,30 @@ static void bufInit() {
 
 // Append one frame to the RAM chunk; flushes chunk to SD when full.
 static void bufAppend(const uint8_t* data, uint16_t len) {
-    if (!s_pcap || s_bufUsed + 16 + len > s_bufCap) {
-        if (s_bufUsed) {                                   // flush whole chunk
-            size_t w = s_pcap.write(s_buf, s_bufUsed);
-            if (w != s_bufUsed) {
-                logLine("pcap: SD write failed - capture aborted");
-                s_pcap.close();
-            }
-            s_bufUsed = 0;
+    if (!s_pcap) return;
+    // FALLBACK: chunk buffer never allocated (fragmented heap - malloc
+    // failed at pcapOpen). Write per-frame instead of silently dropping
+    // (field bug: 'eapol 4' counted but a 24-byte pcap - all frames lost).
+    if (!s_buf) {
+        uint32_t us = micros();
+        uint32_t secs = us / 1000000, usec = us % 1000000;
+        uint8_t rec[16];
+        memcpy(rec, &secs, 4);
+        memcpy(rec+4, &usec, 4);
+        memcpy(rec+8, &len, 4);
+        memcpy(rec+12, &len, 4);
+        s_pcap.write(rec, 16);
+        s_pcap.write(data, len);
+        s_stats.captured++;
+        return;
+    }
+    if (s_bufUsed + 16 + len > s_bufCap) {             // chunk full -> flush
+        size_t w = s_pcap.write(s_buf, s_bufUsed);
+        if (w != s_bufUsed) {
+            logLine("pcap: SD write failed - capture aborted");
+            s_pcap.close();
         }
+        s_bufUsed = 0;
         if (!s_pcap) return;
     }
     if (s_bufUsed + 16 + len > s_bufCap) return;   // still won't fit -> drop
@@ -389,6 +404,8 @@ static bool pcapOpen(const String& name) {
     s_pcap.flush();
     bufInit();
     s_bufUsed = 0;
+    if (!s_buf)
+        logLine("pcap: WARNING chunk buffer alloc failed - EAPOL written per-frame");
     return true;
 }
 
