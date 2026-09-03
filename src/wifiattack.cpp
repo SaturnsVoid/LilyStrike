@@ -773,7 +773,10 @@ bool ssidSpam(const String& csv, uint32_t seconds) {
 
 
 bool startDeauth(const String& ssid, uint32_t seconds, uint8_t method) {
-    if (s_attacking || ducky::isRunning()) return false;
+    // NOTE: no ducky::isRunning() guard here - script-launched DEAUTH runs
+    // INSIDE a script by definition (the old guard silently killed every
+    // script attack; the concurrency guard belongs in the web handler).
+    if (s_attacking) return false;
     s_method = (Method)method;
     s_stats = Stats();
     s_attacking = true;

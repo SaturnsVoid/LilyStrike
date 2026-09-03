@@ -867,6 +867,7 @@ static void hKarmaSpawn() {
     String body = server.arg("plain"), ssid;
     if (!extractJsonStr(body, "ssid", ssid) || !ssid.length())
         return jsonErr(400, "ssid required");
+    if (ducky::isRunning()) return jsonErr(409, "script running - wait for it to finish");
     if (!evilap::karmaSpawn(ssid)) return jsonErr(500, "cannot spawn portal");
     json(200, "{\"ok\":true,\"warn\":\"device offline while portal runs\"}");
 }
@@ -881,6 +882,7 @@ static void hDeauthStart() {
     long method = extractJsonNum(body, "method", 0);
     if (!extractJsonStr(body, "ssid", ssid) || !ssid.length())
         return jsonErr(400, "ssid required");
+    if (ducky::isRunning()) return jsonErr(409, "script running - wait for it to finish");
     if (wifiattack::attacking()) return jsonErr(409, "attack already running");
     logLine("web: DEAUTH requested for '" + ssid + "' method " + String(method));
     if (!wifiattack::startDeauth(ssid, constrain((long)secs, 5, 300), (uint8_t)constrain((long)method,0,4)))
