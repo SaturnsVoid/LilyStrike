@@ -18,6 +18,7 @@
 // ============================================================================
 #include "wifiattack.h"
 #include "config.h"
+#include <Preferences.h>
 #include "hw.h"
 #include "util.h"
 #include "crypt.h"
@@ -574,6 +575,28 @@ static void restoreWifi() {
     }
     WiFi.mode(WIFI_AP);
     WiFi.softAP(cfg.wifiSSID, cfg.wifiPass);
+    // Re-establish the station link if the device was joined before the
+    // attack (creds persisted by CONNECT_AP). Restores remote reachability
+    // without waiting for a reboot+autostart.
+    {
+        Preferences p; p.begin("sta", true);
+        String ssid = p.getString("ssid", "");
+        String pass = p.getString("pass", "");
+        p.end();
+        if (ssid.length()) {
+            WiFi.mode(WIFI_AP_STA);
+            WiFi.setSleep(WIFI_PS_NONE);
+            WiFi.setAutoReconnect(true);
+            WiFi.persistent(false);
+            WiFi.begin(ssid.c_str(), pass.c_str());
+            int tries = 0;
+            while (WiFi.status() != WL_CONNECTED && tries++ < 16) delay(500);
+            logLine(String("wifi: station ") +
+                    (WiFi.status() == WL_CONNECTED
+                         ? "reconnected " + WiFi.localIP().toString()
+                         : "reconnect failed (will retry on next CONNECT_AP/boot)"));
+        }
+    }
     g_state.bootBtnAbort = false;
 }
 

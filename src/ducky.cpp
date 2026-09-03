@@ -792,6 +792,14 @@ RunResult run(const String& scriptText, const String& name) {
             logLine("[script:" + name + "] CONNECT_AP '" + ssid + "' " +
                     (ok ? "connected "+WiFi.localIP().toString() : "FAILED"));
             if (ok) {
+                // Persist station credentials: restoreWifi() re-establishes
+                // the STA link after radio attacks tear it down.
+                {
+                    Preferences p; p.begin("sta", false);
+                    p.putString("ssid", ssid);
+                    p.putString("pass", pass);
+                    p.end();
+                }
                 // NTP: real clock makes scheduler 'at' entries usable and log
                 // timestamps absolute. Non-blocking; resyncs hourly below.
                 configTime(0, 0, "pool.ntp.org", "time.google.com");
@@ -811,6 +819,11 @@ RunResult run(const String& scriptText, const String& name) {
             WiFi.mode(WIFI_AP_STA);          // ensure AP stays alive
             bool erase = mode.startsWith("erase");
             WiFi.disconnect(false, erase);
+            if (erase) {
+                Preferences p; p.begin("sta", false);
+                p.clear();
+                p.end();
+            }
             logLine("[script:" + name + "] DISCON_AP" +
                     (erase ? " (creds erased)" : ""));
         }
