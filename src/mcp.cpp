@@ -481,7 +481,10 @@ bool enabled() { return s_enabled; }
 class McpSseProbeHandler : public AsyncWebHandler {
 public:
     bool canHandle(AsyncWebServerRequest* r) const override {
-        return r->isSSE() && r->url() == "/mcp";
+        // isSSE() requires HTTP_GET - SSE-tagged POSTs (MCP clients send
+        // Accept: text/event-stream on POST too) match NOTHING and die in
+        // the catch-all as an empty 500. Match the connection type directly.
+        return r->isExpectedRequestedConnType(RCT_EVENT) && r->url() == "/mcp";
     }
     void handleRequest(AsyncWebServerRequest* r) override {
         logLine("mcp: sse-probe handler reached (method " + String(r->method()) + ")");
