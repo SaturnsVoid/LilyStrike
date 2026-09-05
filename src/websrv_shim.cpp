@@ -31,6 +31,16 @@ void WebSrvShim::on(const char* path, WebRequestMethodComposite method, THandler
     });
     _srv.addHandler(h);
 }
+void WebSrvShim::adoptRequest(AsyncWebServerRequest* r, const String& body) {
+    s_cur = r;
+    s_bodies[r] = body;
+    s_curBody = &s_bodies[r];
+    s_qHeaders = "";
+}
+void WebSrvShim::releaseRequest() {
+    if (s_cur) { s_bodies.erase(s_cur); }
+    s_cur = nullptr; s_curBody = nullptr;
+}
 void WebSrvShim::onNotFound(THandlerFunction fn) {
     auto* h = new AsyncCallbackWebHandler();
     // "/*" glob = match anything not claimed above. NOTE: "/.+" (regex) only

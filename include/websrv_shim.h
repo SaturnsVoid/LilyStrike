@@ -61,6 +61,11 @@ public:
     void handleClient() {}   // async server needs no polling
     // Escape hatch for the WS endpoint + event wiring in webserver.cpp
     AsyncWebServer& raw() { return _srv; }
+    // For custom handlers outside the on()/onBody flow (e.g. SSE-tagged
+    // requests): adopt a request into the shim context with a supplied body
+    // so sync-style handlers can read it via arg("plain").
+    void adoptRequest(AsyncWebServerRequest* r, const String& body);
+    void releaseRequest();
 private:
     AsyncWebServer _srv;
 };

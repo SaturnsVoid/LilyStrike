@@ -486,12 +486,28 @@ public:
     void handleRequest(AsyncWebServerRequest* r) override {
         if (!s_enabled) { r->send(403, "application/json",
             "{\"error\":\"MCP disabled in device settings\"}"); return; }
+        if (r->method() == HTTP_POST) {
+            // Full MCP flow: adopt the captured body into the shim context
+            // so handleMcp() reads it via arg("plain").
+            WebSrvShim* srv = webServerPtr();
+            srv->adoptRequest(r, s_sseBody);
+            s_sseBody = "";
+            handleMcp();
+            srv->releaseRequest();
+            return;
+        }
         r->send(405, "application/json",
             "{\"error\":\"SSE not supported - POST JSON-RPC 2.0 here (auth: X-MCP-Token header or ?token=)\"}");
     }
     void handleUpload(AsyncWebServerRequest*, const String&, size_t, uint8_t*, size_t, bool) override {}
-    void handleBody(AsyncWebServerRequest*, uint8_t*, size_t, size_t, size_t) override {}
+    void handleBody(AsyncWebServerRequest* r, uint8_t* d, size_t len, size_t, size_t) override {
+        if (r->url() == "/mcp") s_sseBody += String((const char*)d, len);
+        if (s_sseBody.length() > 65536) s_sseBody = s_sseBody.substring(0, 65536);
+    }
+private:
+    static String s_sseBody;
 };
+String McpSseProbeHandler::s_sseBody = "";
 
 static void registerRoute();   // fwd: defined below, needed by setEnabled
 void setEnabled(bool on) {
