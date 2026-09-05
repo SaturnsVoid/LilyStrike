@@ -472,6 +472,27 @@ static void handleMcp() {
 }
 
 bool enabled() { return s_enabled; }
+
+// SSE-tagged /mcp probes: MCP clients send "Accept: text/event-stream";
+// the async server then tags the request RCT_EVENT, which NO regular
+// handler accepts (isHTTP() is false for them) -> untyped 500 and the
+// client concludes "does not speak MCP". This handler catches those
+// probes and answers with a typed, spec-legal 405 instead.
+class McpSseProbeHandler : public AsyncWebHandler {
+public:
+    bool canHandle(AsyncWebServerRequest* r) const override {
+        return r->isSSE() && r->url() == "/mcp";
+    }
+    void handleRequest(AsyncWebServerRequest* r) override {
+        if (!s_enabled) { r->send(403, "application/json",
+            "{\"error\":\"MCP disabled in device settings\"}"); return; }
+        r->send(405, "application/json",
+            "{\"error\":\"SSE not supported - POST JSON-RPC 2.0 here (auth: X-MCP-Token header or ?token=)\"}");
+    }
+    void handleUpload(AsyncWebServerRequest*, const String&, size_t, uint8_t*, size_t, bool) override {}
+    void handleBody(AsyncWebServerRequest*, uint8_t*, size_t, size_t, size_t) override {}
+};
+
 static void registerRoute();   // fwd: defined below, needed by setEnabled
 void setEnabled(bool on) {
     s_enabled = on;
@@ -513,6 +534,8 @@ static void registerRoute() {
             srv->sendHeader("Allow", "POST, GET, OPTIONS");
             srv->send(204, "application/json", "");
         });
+        // FIRST: catch SSE-tagged probes before they fall through unhandled
+        srv->raw().addHandler(new McpSseProbeHandler());
         s_routeRegistered = true;
     }
 }
