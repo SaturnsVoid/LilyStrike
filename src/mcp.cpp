@@ -496,7 +496,25 @@ static bool s_routeRegistered = false;
 static void registerRoute() {
     if (s_routeRegistered) return;
     WebSrvShim* srv = webServerPtr();
-    if (srv) { srv->on("/mcp", HTTP_POST, handleMcp); s_routeRegistered = true; }
+    if (srv) {
+        srv->on("/mcp", HTTP_POST, handleMcp);
+        // Typed answers for client probes: MCP Streamable-HTTP clients GET
+        // the endpoint first (expecting SSE or 405) and may send OPTIONS
+        // preflight. Unanswered, they conclude "does not speak MCP".
+        srv->on("/mcp", HTTP_GET, []() {
+            WebSrvShim* srv = webServerPtr();
+            if (!s_enabled) { srv->send(403, "application/json",
+                "{\"error\":\"MCP disabled in device settings\"}"); return; }
+            srv->send(405, "application/json",
+                "{\"error\":\"POST JSON-RPC 2.0 to this endpoint; SSE streaming not supported\"}");
+        });
+        srv->on("/mcp", HTTP_OPTIONS, []() {
+            WebSrvShim* srv = webServerPtr();
+            srv->sendHeader("Allow", "POST, GET, OPTIONS");
+            srv->send(204, "application/json", "");
+        });
+        s_routeRegistered = true;
+    }
 }
 void begin() {
     load();

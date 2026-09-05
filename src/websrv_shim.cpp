@@ -23,7 +23,11 @@ void WebSrvShim::on(const char* path, WebRequestMethodComposite method, THandler
     });
     h->onRequest([fn](AsyncWebServerRequest* r) {
         s_cur = r;
-        s_curBody = &s_bodies[r];       // may be empty for GETs
+        // START FRESH: late body chunks can re-insert a finished request's
+        // pointer; without clearing, the next request at the same heap
+        // address inherits a stale body (long-uptime field weirdness).
+        s_bodies[r] = "";
+        s_curBody = &s_bodies[r];
         s_qHeaders = "";
         fn();
         s_bodies.erase(r);
