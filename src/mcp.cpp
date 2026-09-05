@@ -484,6 +484,7 @@ public:
         return r->isSSE() && r->url() == "/mcp";
     }
     void handleRequest(AsyncWebServerRequest* r) override {
+        logLine("mcp: sse-probe handler reached (method " + String(r->method()) + ")");
         if (!s_enabled) { r->send(403, "application/json",
             "{\"error\":\"MCP disabled in device settings\"}"); return; }
         if (r->method() == HTTP_POST) {
