@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="screenshots/logo.jpg" width="560" alt="LilyStrike logo">
+</p>
+
 # LilyStrike
 
 **Advanced pentest & BadUSB toolkit for the LILYGO T-Dongle-S3**
