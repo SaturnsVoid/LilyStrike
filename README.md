@@ -123,7 +123,7 @@ The [`flasher/`](flasher/) folder is a self-contained browser flasher
 (ESP Web Tools): open the page in Chrome/Edge, click Connect, and the
 firmware + web UI install over USB in one pass — no PlatformIO needed.
 
-- **Live now**: [flasher.saturnsvoid — LilyStrike Web Flasher](https://saturnsvoid.github.io/LilyStrike/flasher/)
+- **Live now**: [LilyStrike Web Flasher](https://saturnsvoid.github.io/LilyStrike/flasher/)
   (GitHub Pages, rebuilt per release with `python3 tools/package_flasher.py`).
 - **Localhost**: `python3 flasher/serve.py` → http://localhost:8722
   (localhost counts as a secure context, so Web Serial works).
