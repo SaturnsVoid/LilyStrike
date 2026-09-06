@@ -1,0 +1,38 @@
+{
+  "name": "LilyStrike",
+  "version": "1.0.1",
+  "new_install_improv": false,
+  "new_install_enable_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32-S3",
+      "parts": [
+        {
+          "path": "bootloader.bin",
+          "offset": 0,
+          "sha256": "31b3c1be45dc5a76aa85c82540d6787b675e711eaf11021a5eea7e36f469c6de"
+        },
+        {
+          "path": "partitions.bin",
+          "offset": 32768,
+          "sha256": "bd0f7954aca2ef7d925ee21aaa1f3dc8822d1d6ce5cbbd26a135e5886bfff6ce"
+        },
+        {
+          "path": "boot_app0.bin",
+          "offset": 57344,
+          "sha256": "f94c5d786a7a8fab06ac5d10e33bf37711a6697636dc037559ea19cc410a17f0"
+        },
+        {
+          "path": "firmware.bin",
+          "offset": 65536,
+          "sha256": "fd6f2a133fa0fa09c26933e403f1e79c5ffb7e9ef543c552043521c9c81a7ad5"
+        },
+        {
+          "path": "littlefs.bin",
+          "offset": 13172736,
+          "sha256": "326e696efb5f2bba43cbbbfd97f120972225fc611acc0369ed7ca9ab7e3e4269"
+        }
+      ]
+    }
+  ]
+}

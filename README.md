@@ -105,6 +105,21 @@ Settings → **MCP enabled**, set a token (Settings → MCP), and point any MCP 
 | MCP server | disabled | Settings → MCP |
 | Encryption password | *(empty — encryption disabled)* | Settings → Encryption |
 
+## Web flasher (no-toolchain install)
+
+The [`flasher/`](flasher/) folder is a self-contained browser flasher
+(ESP Web Tools): open the page in Chrome/Edge, click Connect, and the
+firmware + web UI install over USB in one pass — no PlatformIO needed.
+
+- **Anywhere (HTTPS)**: publish the `flasher/` folder to GitHub Pages or
+  any static host. Regenerate per release with `python3 tools/package_flasher.py`
+  after building.
+- **Localhost**: `python3 flasher/serve.py` → http://localhost:8722
+  (localhost counts as a secure context, so Web Serial works).
+
+Firefox/Safari are not supported (no Web Serial) — the page says so and
+falls back to the PlatformIO route below.
+
 ## Example payloads
 
 The [`examples/`](examples/) folder ships ready-made payloads: download-and-run

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LilyStrike — Web Flasher</title>
+<style>
+  :root{--bg:#0f0f0f;--panel:#171717;--border:#2a2a2a;--green:#00e676;--dim:#9a9a9a;--warn:#ffd600;--err:#ff5252}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:#e8e8e8;font:15px/1.55 -apple-system,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:880px;margin:0 auto;padding:28px 20px 60px}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+  .bolt{width:34px;height:34px}
+  h1{font-size:26px;margin:0;letter-spacing:.5px}
+  h1 span{color:var(--green)}
+  .ver{color:var(--dim);font-size:13px;margin-bottom:22px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:22px;margin:18px 0}
+  .card h2{margin:0 0 10px;font-size:17px}
+  esp-web-install-button{--esp-tools-button-text-color:#0f0f0f;--esp-tools-button-background-color:var(--green);
+    border-radius:8px;display:inline-block;font-weight:600}
+  esp-web-install-button button{padding:11px 26px;font-size:15px;border:0;cursor:pointer;border-radius:8px}
+  esp-web-install-button[install-unsupported]{display:block;color:var(--warn)}
+  esp-web-install-button[install-unsupported] a{color:var(--green)}
+  .steps{margin:14px 0 0;padding-left:20px;color:#cfcfcf}
+  .steps li{margin:5px 0}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:12px}
+  .feat{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+  .feat b{color:var(--green);display:block;margin-bottom:4px;font-size:14px}
+  .feat span{font-size:13.5px;color:#cfcfcf}
+  .note{border-left:3px solid var(--warn);background:#1c1a0d;padding:12px 16px;border-radius:0 8px 8px 0;font-size:14px;margin:18px 0}
+  .danger{border-left-color:var(--err);background:#1d0f0f}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}
+  td{padding:7px 10px;border-top:1px solid var(--border)}
+  td:first-child{color:var(--dim);width:170px}
+  code{background:#222;border-radius:4px;padding:2px 7px;font-family:ui-monospace,Consolas,monospace;font-size:13px;color:var(--green)}
+  .foot{margin-top:34px;color:var(--dim);font-size:12.5px;text-align:center}
+  a{color:var(--green)}
+  esp-web-install-button[active] { outline:2px solid var(--green); outline-offset:4px; }
+</style>
+<script type="module"
+  src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+</head><body>
+<div class="wrap">
+
+  <header>
+    <svg class="bolt" viewBox="0 0 24 24" fill="none">
+      <rect width="24" height="24" rx="5" fill="#171717"/>
+      <path d="M13 2 4.5 13.5H11L9.5 22 19.5 9.5H12.5L13 2Z" fill="#00e676"/>
+    </svg>
+    <h1>Lily<span>Strike</span> Web Flasher</h1>
+  </header>
+  <div class="ver">v1.0.1 &middot; ESP32-S3 &middot; 16 MB flash &middot; firmware + web UI in one pass</div>
+
+  <div class="card">
+    <h2>Install</h2>
+    <p style="margin-top:0">Plug the LilyGo T-Dongle-S3 in with a <b>data</b> USB cable, then press
+      <b>Connect</b>. Everything — bootloader, partition table, firmware and the encrypted web UI —
+      is written in one pass. No drivers, no toolchain.</p>
+    <esp-web-install-button manifest="manifest.json">
+      <button slot="activate">Connect &amp; Install</button>
+      <span slot="unsupported">Web Serial is not available in this browser.
+        Use <a href="https://www.google.com/chrome/">Chrome</a> or
+        <a href="https://www.microsoft.com/edge">Edge</a> (desktop).</span>
+      <span slot="not-allowed">Flashing needs a HTTPS or localhost page — see
+        <code>flasher/serve.py</code>.</span>
+    </esp-web-install-button>
+    <ol class="steps">
+      <li>Click <b>Connect &amp; Install</b> and pick the dongle's serial port.</li>
+      <li>First-time install: tick <b>Erase device</b> for a clean start (optional but recommended).</li>
+      <li>Wait for the write + verify to finish (~1 min), then unplug and replug the dongle.</li>
+    </ol>
+  </div>
+
+  <div class="note">
+    <b>Re-flashing keeps your data.</b> Firmware updates overwrite the app slot only —
+    scripts, settings and captures on the SD card survive. Tick <i>Erase device</i> only for a
+    factory-fresh device. Already running LilyStrike? You can update over WiFi from the
+    web UI instead (Settings → Firmware Update).
+  </div>
+
+  <div class="card">
+    <h2>What you're installing</h2>
+    <div class="grid">
+      <div class="feat"><b>BadUSB / DuckyScript</b><span>50+ command interpreter — variables, conditionals, OS fingerprinting, human-like typing, HID combos.</span></div>
+      <div class="feat"><b>Live Control</b><span>Drive keyboard, mouse and media keys of the host from the browser, in real time.</span></div>
+      <div class="feat"><b>WiFi Attacks &amp; Recon</b><span>Deauth + EAPOL capture with hashcat 22000 export, EvilAP captive portal, Karma probing, live packet analyzer, host recon.</span></div>
+      <div class="feat"><b>AI Interface (MCP)</b><span>Drive the whole device from Claude or any MCP client — payloads, scripts, system control.</span></div>
+      <div class="feat"><b>Encrypted Storage</b><span>AES-256-GCM for scripts, logs and captures. Exfiltrated files land encrypted on the dongle.</span></div>
+      <div class="feat"><b>False Thumbdrive</b><span>Boots as an innocent read-only USB stick backed by an isolated disk image.</span></div>
+      <div class="feat"><b>Stealth by Design</b><span>Sleepy screen, dark LED, spoofable USB identity and MAC, kill switches on BOOT.</span></div>
+      <div class="feat"><b>Web UI + OTA</b><span>Full management interface over WiFi; firmware and web-UI updates over the air.</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>After the first boot</h2>
+    <table>
+      <tr><td>Config WiFi</td><td><code>Dongle-Setup</code> / <code>dongle1234</code></td></tr>
+      <tr><td>Web UI</td><td><code>http://192.168.4.1</code> (or <code>http://lilystrike.local</code>)</td></tr>
+      <tr><td>Login</td><td><code>admin</code> / <code>admin</code> — change it in Settings</td></tr>
+      <tr><td>License</td><td>Accept the EULA on first load</td></tr>
+      <tr><td>Join WiFi</td><td>BadUSB page → autostart script <code>CONNECT_AP your-ssid your-pass</code></td></tr>
+    </table>
+    <p style="margin-bottom:0">Full guides: <a href="https://github.com/">docs/</a> in the repository —
+      DUCKYSCRIPT.md, WEB-UI.md, MCP.md, SECURITY.md, TROUBLESHOOTING.md.</p>
+  </div>
+
+  <div class="note danger">
+    <b>Authorized use only.</b> LilyStrike is dual-use security-testing hardware. Run payloads
+    exclusively on systems you own or have explicit written permission to test. Unauthorized
+    access to computer systems is a crime in most jurisdictions.
+  </div>
+
+  <div class="foot">
+    MIT License + responsible-use addendum &middot; LilyStrike Project &middot;
+    flashing via <a href="https://esphome.github.io/esp-web-tools/">ESP Web Tools</a>
+  </div>
+</div>
+</body></html>
