@@ -47,18 +47,24 @@ LilyStrike turns a $10-looking USB dongle into a complete offensive-security too
 
 ## Quick start
 
-### 1. Build & flash
+### 1. Flash (easiest: browser)
+
+Open the [Web Flasher](https://saturnsvoid.github.io/LilyStrike/flasher/) in Chrome or Edge,
+plug the dongle in, click Connect — firmware + web UI install in one pass. No toolchain needed.
+(Re-flash/update also possible later over WiFi from the web UI.)
+
+### 2. Build & flash (from source)
 
 ```bash
 # requirements: PlatformIO CLI (pip install platformio)
-cd ProjectCodename
+cd LilyStrike
 pio run -t upload          # firmware
 pio run -t uploadfs        # web UI (LittleFS image)
 ```
 
 Insert a **microSD card** (FAT32, any size up to 256 GB tested). The card stores scripts, logs, and captures — all encrypted.
 
-### 2. First connection
+### 3. First connection
 
 1. Power the dongle from any USB port. After boot the LCD shows the AP name and IP.
 2. Join the WiFi access point:
@@ -68,7 +74,7 @@ Insert a **microSD card** (FAT32, any size up to 256 GB tested). The card stores
 4. Log in — default `admin` / `admin`.
 5. Accept the EULA, then **immediately change** the web password (Settings → Login) and the AP credentials (Settings → WiFi).
 
-### 3. Run your first payload
+### 4. Run your first payload
 
 Plug the dongle into the **target** computer's USB port (it presents itself as an HID keyboard). In the web UI, open **BadUSB**, write a script:
 
@@ -86,7 +92,7 @@ ENTER
 
 Press **▶ Run**. The target types it out with human-speed timing.
 
-### 4. Join the device to your network (optional)
+### 5. Join the device to your network (optional)
 
 Either run a script containing:
 
@@ -96,7 +102,7 @@ CONNECT_AP YourNetwork yourPassword
 
 or use the WiFi Tools page. Once joined, the device is reachable at its DHCP address *and* still exposes its own AP — both interfaces work simultaneously.
 
-### 5. Enable the AI interface (optional)
+### 6. Enable the AI interface (optional)
 
 Settings → **MCP enabled**, set a token (Settings → MCP), and point any MCP client at `POST http://<device-ip>/mcp` with the header `X-MCP-Token: <your-token>`. See [`docs/MCP.md`](docs/MCP.md).
 
@@ -117,9 +123,8 @@ The [`flasher/`](flasher/) folder is a self-contained browser flasher
 (ESP Web Tools): open the page in Chrome/Edge, click Connect, and the
 firmware + web UI install over USB in one pass — no PlatformIO needed.
 
-- **Anywhere (HTTPS)**: publish the `flasher/` folder to GitHub Pages or
-  any static host. Regenerate per release with `python3 tools/package_flasher.py`
-  after building.
+- **Live now**: [flasher.saturnsvoid — LilyStrike Web Flasher](https://saturnsvoid.github.io/LilyStrike/flasher/)
+  (GitHub Pages, rebuilt per release with `python3 tools/package_flasher.py`).
 - **Localhost**: `python3 flasher/serve.py` → http://localhost:8722
   (localhost counts as a secure context, so Web Serial works).
 
@@ -136,7 +141,7 @@ encrypted SD card via USB storage. See [`examples/README.md`](examples/README.md
 ## Repository layout
 
 ```
-ProjectCodename/
+LilyStrike/
 ├── src/               firmware sources (one file per subsystem)
 ├── include/           headers + pin map
 ├── data/www/          web UI (flashed to LittleFS with uploadfs)
