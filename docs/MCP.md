@@ -73,6 +73,30 @@ natively when the transport moves to SSE/WebSocket.
 `analyze_capture`. `prompts/get` returns ready-made user messages that walk
 the LLM through reading the right resources first.
 
+
+## Connecting GUI / harness clients
+
+The endpoint speaks JSON-RPC 2.0 over plain HTTP POST, and is compatible
+with Streamable-HTTP style clients (which send `Accept:
+application/json, text/event-stream`):
+
+- **Auth**: set the `X-MCP-Token` header, **or** append `?token=<TOKEN>`
+  to the URL (for clients that cannot set headers).
+- **Probe handling**: `GET /mcp` returns a typed 405 (SSE streaming is not
+  supported), `OPTIONS` returns 204 — clients should fall back to POST.
+- If the client offers both, POST JSON-RPC is the transport; no SSE events
+  are emitted (use `resources/poll` for change tracking).
+
+Example client config (Pi.dev harness / generic Streamable-HTTP):
+
+```
+URL:   http://<device-ip>/mcp?token=<your-mcp-token>
+```
+
+If a client reports "untyped response" or "does not speak MCP", verify it
+is POSTing JSON-RPC to `/mcp` and that MCP is enabled in device settings
+(a disabled server answers 403).
+
 ## Example: curl
 
 ```bash
