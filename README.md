@@ -8,6 +8,8 @@ LilyStrike turns a $10-looking USB dongle into a complete offensive-security too
 
 ---
 
+![LilyGo T-Dongle-S3 running LilyStrike](screenshots/t-dongle.png)
+
 ## Hardware
 
 | Component | Detail |
@@ -139,6 +141,15 @@ ProjectCodename/
 ├── docs/              documentation (you are here)
 └── platformio.ini     build config
 ```
+
+## Screens
+
+| | |
+|---|---|
+| ![BadUSB Script Studio](screenshots/badusb.png) | ![WiFi Tools](screenshots/wifi_tools.png) |
+| ![Live Control](screenshots/live_control.png) | ![Settings](screenshots/settings.png) |
+
+More on every page in the [Web UI Guide](docs/WEB-UI.md).
 
 ## Documentation
 

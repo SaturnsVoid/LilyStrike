@@ -4,9 +4,13 @@ Browse to the device (default `http://192.168.4.1` or `http://lilystrike.local`)
 
 Login sessions: up to 6 concurrent (tabs, devices). Sessions live in RAM only — **a reboot logs everyone out**. Logout (bottom of the sidebar) invalidates only your own session.
 
+![Login screen](../screenshots/login.png)
+
 ---
 
 ## BadUSB (home page)
+
+![badusb](../screenshots/badusb.png)
 
 The Script Studio: a browser IDE with syntax highlighting (flow keywords, device commands, string literals, numbers), a script list on the left, and a gutter with line numbers.
 
@@ -22,9 +26,13 @@ Per-script layout from: en_US, de_DE, es_ES, fr_CH, fr_FR, it_IT, pt_PT, pt_BR, 
 
 ## Files
 
+![files](../screenshots/files.png)
+
 Full-file-manager view of the SD card: browse, view/edit text, upload (base64 upload handles binary), create folders, delete. Files with the LilyStrike encryption envelope (or `.ds` scripts) are decrypted/encrypted transparently on view/save. **Everything on the card is reachable here by design.**
 
 ## WiFi Tools
+
+![wifi tools](../screenshots/wifi_tools.png)
 
 Three panels in one page:
 
@@ -35,11 +43,15 @@ Three panels in one page:
 
 ## Deauth
 
+![deauth](../screenshots/deauth.png)
+
 Sends deauthentication frames to force clients off a target AP. Pre-fill a target from the WiFi Scanner. Five method variants are selectable; the device is **offline during the attack** (single radio) and restores the AP afterwards. Live TX counters report frames sent.
 
 *Lawful use only — deauthing networks you don't own is a crime in most places.*
 
 ## EvilAP
+
+![evilap](../screenshots/evilap.png)
 
 Rogue access point with a captive portal for credential harvesting:
 
@@ -52,13 +64,19 @@ Victims who "log in" get their credentials recorded and pass-through internet (i
 
 ## Live Control
 
+![live control](../screenshots/live_control.png)
+
 Manual HID playground: click/type/mouse-pad panels that inject HID events live. Useful for demos, testing a target's response, or finishing a job a script started.
 
 ## Reference
 
+![reference](../screenshots/reference.png)
+
 The built-in DuckyScript manual: every command, argument description, and a copyable example. Same content as [`DUCKYSCRIPT.md`](DUCKYSCRIPT.md), always shipped with the firmware.
 
 ## Status
+
+![status](../screenshots/status.png)
 
 - Firmware version, free RAM (current + minimum watermark), CPU frequency, uptime
 - SD card capacity/free space
@@ -70,6 +88,8 @@ The built-in DuckyScript manual: every command, argument description, and a copy
 - **Live log** — streams every log line the moment it happens
 
 ## Settings
+
+![settings](../screenshots/settings.png)
 
 Grouped cards, each with its own save button; empty fields = unchanged.
 
