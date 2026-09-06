@@ -1,2 +1,14 @@
+# build
 .pio/
-.agent/tmp/
+
+# agent workspace (internal notes - never ship)
+.agent/
+
+# generated artifacts
+flasher/LilyStrike-flasher-*.zip
+logs/
+
+# editors
+.vscode/
+.idea/
+*.swp
