@@ -167,7 +167,8 @@ static String toolCall(const String& name, const String& body) {
             File f; bool first = true;
             while ((f = dir.openNextFile())) {
                 String fn = f.name();
-                if (fn.endsWith(".meta")) { f.close(); continue; }
+                // hide sidecars + metadata store: only real scripts belong
+                if (!fn.endsWith(".ds")) { f.close(); continue; }
                 if (!first) out += ",";
                 first = false;
                 out += "\"" + fn + "\"";
