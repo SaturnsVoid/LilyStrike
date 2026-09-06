@@ -79,7 +79,7 @@ Insert a **microSD card** (FAT32, any size up to 256 GB tested). The card stores
 Plug the dongle into the **target** computer's USB port (it presents itself as an HID keyboard). In the web UI, open **BadUSB**, write a script:
 
 ```
-REM open a terminal on Windows and print the device IP
+REM open a terminal on Windows and print hello
 DELAY 1000
 GUI r
 DELAY 500
